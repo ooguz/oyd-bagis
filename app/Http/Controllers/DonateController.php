@@ -101,7 +101,7 @@ class DonateController extends Controller
                 if ($request->expectsJson()) {
                     return response()->json([
                         'status' => 'failure',
-                        'errorMessage' => $result['errorMessage'] ?? 'Ödeme başarısız',
+                        'errorMessage' => self::getHumanReadableErrorMessage($result['errorMessage'] ?? 'Ödeme başarısız'),
                     ], 422);
                 }
                 return back()->withErrors(['payment' => 'Ödeme başarısız oldu. Hata nedeni: ' . self::getHumanReadableErrorMessage($result['errorMessage'] ?? 'Bilinmeyen hata', $result['raw']['errorCode'] ?? null)])->withInput();
@@ -125,7 +125,7 @@ class DonateController extends Controller
                     'checkoutFormContent' => $result['checkoutFormContent'] ?? null,
                     'paymentPageUrl' => $result['paymentPageUrl'] ?? null,
                     'token' => $result['token'] ?? null,
-                    'errorMessage' => ($result['status'] ?? '') !== 'success' ? ($result['errorMessage'] ?? 'Ödeme bileşeni yüklenemedi') : null,
+                    'errorMessage' => ($result['status'] ?? '') !== 'success' ? self::getHumanReadableErrorMessage($result['errorMessage'] ?? 'Ödeme bileşeni yüklenemedi') : null,
                 ], ($result['status'] ?? '') === 'success' ? 200 : 422);
             }
 
@@ -134,7 +134,7 @@ class DonateController extends Controller
                 'paymentPageUrl' => $result['paymentPageUrl'] ?? null,
                 'donation' => $donation,
                 'successMessage' => null,
-                'errorMessage' => ($result['status'] ?? '') !== 'success' ? ($result['errorMessage'] ?? 'Ödeme bileşeni yüklenemedi') : null,
+                'errorMessage' => ($result['status'] ?? '') !== 'success' ? self::getHumanReadableErrorMessage($result['errorMessage'] ?? 'Ödeme bileşeni yüklenemedi') : null,
             ]);
         } catch (\Throwable $e) {
             Log::error('donation.start_error', [
