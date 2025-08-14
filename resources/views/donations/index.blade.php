@@ -12,7 +12,7 @@
 <body class="bg-[#FDFDFC] text-[#1b1b18] min-h-screen">
     @include('components.site-header')
     
-    <div class="container mx-auto max-w-7xl p-4">
+    <div class="container mx-auto max-w-7xl p-4 pb-24">
         <!-- Header Section -->
         <div class="mb-8">
             <div class="flex items-center justify-between mb-4">
@@ -322,7 +322,7 @@
         @endif
 
         <!-- Footer -->
-        <div class="mt-8 text-center text-sm text-gray-500">
+        <div class="mt-8 mb-8 text-center text-sm text-gray-500">
             <p>Bu sayfa sadece size özel olarak oluşturulmuştur. Güvenlik için oturum süreniz dolduğunda tekrar giriş yapmanız gerekecektir.</p>
         </div>
     </div>

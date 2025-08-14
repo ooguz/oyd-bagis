@@ -12,7 +12,7 @@
     </head>
     <body class="bg-[#FDFDFC] text-[#1b1b18] min-h-screen">
         @include('components.site-header')
-        <div class="container mx-auto max-w-6xl p-4">
+        <div class="container mx-auto max-w-6xl p-4 pb-24">
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div class="lg:col-span-2 bg-white rounded shadow p-6">
                     <h1 class="text-2xl font-semibold mb-4 text-[#4c2447]">Kredi kartı ile bağış</h1>
