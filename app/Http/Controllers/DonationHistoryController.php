@@ -21,11 +21,25 @@ class DonationHistoryController extends Controller
             ->orderByDesc('created_at')
             ->get();
 
+        // Calculate additional statistics
+        $successfulDonations = $donations->where('status', 'success');
+        $totalAmount = $successfulDonations->sum('amount_minor');
+        $averageAmount = $successfulDonations->count() > 0 ? $successfulDonations->avg('amount_minor') : 0;
+        $maxAmount = $successfulDonations->count() > 0 ? $successfulDonations->max('amount_minor') : 0;
+        $minAmount = $successfulDonations->count() > 0 ? $successfulDonations->min('amount_minor') : 0;
+
         $link->update(['used_at' => now()]);
 
-        return view('welcome', [
+        return view('donations.index', [
             'historyEmail' => $link->email,
             'donations' => $donations,
+            'totalAmount' => $totalAmount,
+            'averageAmount' => $averageAmount,
+            'maxAmount' => $maxAmount,
+            'minAmount' => $minAmount,
+            'successfulCount' => $successfulDonations->count(),
+            'failedCount' => $donations->where('status', 'failed')->count(),
+            'pendingCount' => $donations->where('status', 'pending')->count(),
         ]);
     }
 }
