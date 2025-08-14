@@ -7,6 +7,7 @@ use App\Mail\DonationReceiptMail;
 use App\Models\Donation;
 use App\Models\Donor;
 use App\Services\Payments\IyzicoPaymentService;
+use App\Services\MobileDetectionService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -15,9 +16,13 @@ use Illuminate\Support\Str;
 
 class DonateController extends Controller
 {
-    public function __construct(private readonly IyzicoPaymentService $payments)
-    {
+    public function __construct(
+        private readonly IyzicoPaymentService $payments,
+        private readonly MobileDetectionService $mobileDetection
+    ) {
     }
+
+
 
     public function start(Request $request)
     {
@@ -118,6 +123,18 @@ class DonateController extends Controller
                 'raw_payload' => $result,
                 'failed_reason' => ($result['status'] ?? '') !== 'success' ? ($result['errorMessage'] ?? null) : null,
             ]);
+
+            // Check if mobile device and redirect directly to iyzico
+            if ($this->mobileDetection->isMobileOrTablet($request) && !empty($result['paymentPageUrl'])) {
+                Log::info('donation.mobile_redirect', [
+                    'donation_id' => $donation->id,
+                    'device_type' => $this->mobileDetection->getDeviceType($request),
+                    'user_agent' => $request->userAgent(),
+                    'payment_page_url' => $result['paymentPageUrl'],
+                ]);
+                
+                return redirect()->away($result['paymentPageUrl']);
+            }
 
             if ($request->expectsJson()) {
                 return response()->json([

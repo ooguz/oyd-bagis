@@ -5,9 +5,7 @@
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="payments-flow" content="{{ config('payments.flow', 'checkout') }}">
         <title>{{ config('app.name') }}</title>
-        @if (file_exists(public_path('build/manifest.json')) || file_exists(public_path('hot')))
-            @vite(['resources/css/app.css', 'resources/js/app.js'])
-        @endif
+        @vite(['resources/css/app.css', 'resources/js/app.js'])
         <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
     </head>
     <body class="bg-[#FDFDFC] text-[#1b1b18] min-h-screen">
@@ -57,7 +55,10 @@
                                 Not: Kart bilgileriniz, <span class="font-medium">iyzico</span> tarafından açılacak pencerede alınacaktır. Bu alan sadece bilgilendirme amaçlıdır.
                             </p>
                             @if(!empty($paymentPageUrl))
-                                <div class="mt-3 text-sm"><a class="text-[#4c2447] underline" href="{{ $paymentPageUrl }}" target="_blank">Ödeme sayfasına git</a></div>
+                                <div class="mt-3 text-sm">
+                                    <a class="text-[#4c2447] underline" href="{{ $paymentPageUrl }}" target="_blank">Ödeme sayfasına git</a>
+                                    <span class="text-xs text-gray-500 block mt-1">Mobil cihazlarda otomatik olarak yönlendirileceksiniz.</span>
+                                </div>
                             @endif
                         </div>
                         <div class="flex items-center justify-between">
