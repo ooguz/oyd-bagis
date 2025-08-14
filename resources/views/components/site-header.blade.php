@@ -5,7 +5,7 @@
            
         </a>
         <nav class="text-sm">
-            <a href="#" class="text-white hover:text-gray-200">Aidat</a>
+         <!--   <a href="#" class="text-white hover:text-gray-200">Aidat</a> -->
         </nav>
     </div>
 </header>
