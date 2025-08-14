@@ -21,12 +21,16 @@ class DonateController extends Controller
 
     public function start(Request $request)
     {
-        $validated = $request->validate([
+        $rules = [
             'amount' => ['required', 'string'],
             'full_name' => ['required', 'string', 'min:3', 'max:120'],
             'email' => ['required', 'email'],
             'notes' => ['nullable', 'string', 'max:1000'],
-        ]);
+        ];
+        if (config('payments.flow', 'checkout') === 'direct') {
+            $rules['card_oneline'] = ['required', 'string', 'min:10'];
+        }
+        $validated = $request->validate($rules);
 
         $amountMinor = self::parseAmountToMinor($validated['amount']);
         if ($amountMinor < 100) {
@@ -53,20 +57,84 @@ class DonateController extends Controller
         ]);
 
         try {
+            if (config('payments.flow', 'checkout') === 'direct') {
+                $card = self::parseOnelineCard($validated['card_oneline']);
+                if (!$card) {
+                    return back()->withErrors(['card_oneline' => 'Kart bilgisi geçersiz. Lütfen "KartNo AA/YY CVC" formatında giriniz.'])->withInput();
+                }
+
+                $result = $this->payments->createDirectPayment($donation, $card);
+
+                if (($result['status'] ?? '') === 'success') {
+                    $donation->update([
+                        'status' => 'success',
+                        'completed_at' => now(),
+                        'payment_id' => $result['paymentId'] ?? null,
+                        'card_last4' => $result['cardLastFour'] ?? null,
+                        'card_brand' => $result['cardBrand'] ?? null,
+                        'raw_payload' => $result['raw'] ?? $result,
+                    ]);
+
+                    Mail::to($donation->email)->queue(new DonationReceiptMail($donation));
+                    if (config('mail.from.address') && env('ADMIN_EMAIL')) {
+                        Mail::to(env('ADMIN_EMAIL'))->queue(new AdminDonationNoticeMail($donation, [
+                            'ip' => request()->ip(),
+                            'ua' => $request->userAgent(),
+                        ]));
+                    }
+
+                    if ($request->expectsJson()) {
+                        return response()->json([
+                            'status' => 'success',
+                            'message' => 'Payment completed',
+                        ]);
+                    }
+                    return redirect()->route('home')->with('success', 'Bağışınız için teşekkür ederiz.');
+                }
+
+                $donation->update([
+                    'status' => 'failed',
+                    'failed_reason' => $result['errorMessage'] ?? 'Ödeme başarısız',
+                    'raw_payload' => $result['raw'] ?? $result,
+                ]);
+
+                if ($request->expectsJson()) {
+                    return response()->json([
+                        'status' => 'failure',
+                        'errorMessage' => $result['errorMessage'] ?? 'Ödeme başarısız',
+                    ], 422);
+                }
+                return back()->withErrors(['payment' => 'Ödeme başarısız oldu.'])->withInput();
+            }
+
+            [$firstName, $lastName] = self::splitFullName($donor->full_name);
             $result = $this->payments->createCheckoutForm($donation, [
-                'name' => $donor->full_name,
+                'name' => $firstName,
+                'surname' => $lastName,
             ], $isThreeD);
 
             $donation->update([
                 'token' => $result['token'] ?? null,
                 'raw_payload' => $result,
+                'failed_reason' => ($result['status'] ?? '') !== 'success' ? ($result['errorMessage'] ?? null) : null,
             ]);
+
+            if ($request->expectsJson()) {
+                return response()->json([
+                    'status' => $result['status'] ?? 'failure',
+                    'checkoutFormContent' => $result['checkoutFormContent'] ?? null,
+                    'paymentPageUrl' => $result['paymentPageUrl'] ?? null,
+                    'token' => $result['token'] ?? null,
+                    'errorMessage' => ($result['status'] ?? '') !== 'success' ? ($result['errorMessage'] ?? 'Ödeme bileşeni yüklenemedi') : null,
+                ], ($result['status'] ?? '') === 'success' ? 200 : 422);
+            }
 
             return view('welcome', [
                 'checkoutFormContent' => $result['checkoutFormContent'] ?? null,
                 'paymentPageUrl' => $result['paymentPageUrl'] ?? null,
                 'donation' => $donation,
                 'successMessage' => null,
+                'errorMessage' => ($result['status'] ?? '') !== 'success' ? ($result['errorMessage'] ?? 'Ödeme bileşeni yüklenemedi') : null,
             ]);
         } catch (\Throwable $e) {
             Log::error('donation.start_error', [
@@ -139,6 +207,40 @@ class DonateController extends Controller
             return ((int) $l) * 100 + (int) $r;
         }
         return ((int) preg_replace('/\D/', '', $normalized)) * 100;
+    }
+
+    private static function splitFullName(string $fullName): array
+    {
+        $fullName = trim(preg_replace('/\s+/', ' ', $fullName));
+        if ($fullName === '') {
+            return ['NA', 'NA'];
+        }
+        $parts = explode(' ', $fullName);
+        if (count($parts) === 1) {
+            return [$parts[0], 'NA'];
+        }
+        $last = array_pop($parts);
+        $first = implode(' ', $parts);
+        return [$first, $last];
+    }
+    private static function parseOnelineCard(string $input): ?array
+    {
+        $normalized = preg_replace('/\s+/', ' ', trim($input));
+        if (!preg_match('/^(?<num>[0-9\s]{12,23})\s+(?<mm>\d{2})\/(?<yy>\d{2,4})\s+(?<cvc>\d{3,4})$/', $normalized, $m)) {
+            return null;
+        }
+        $number = preg_replace('/\D/', '', $m['num']);
+        $month = str_pad((string) ((int) $m['mm']), 2, '0', STR_PAD_LEFT);
+        $year = $m['yy'];
+        if (strlen($year) === 2) {
+            $year = '20'.$year;
+        }
+        return [
+            'number' => $number,
+            'exp_month' => $month,
+            'exp_year' => $year,
+            'cvc' => $m['cvc'],
+        ];
     }
 }
 
