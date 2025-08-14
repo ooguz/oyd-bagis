@@ -5,7 +5,8 @@
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <meta name="payments-flow" content="{{ config('payments.flow', 'checkout') }}">
         <title>{{ config('app.name') }}</title>
-        @vite(['resources/css/app.css', 'resources/js/app.js'])
+            @vite(['resources/css/app.css', 'resources/js/app.js'])
+        @endif
         <script defer src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js"></script>
     </head>
     <body class="bg-[#FDFDFC] text-[#1b1b18] min-h-screen">
