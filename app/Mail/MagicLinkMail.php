@@ -17,7 +17,7 @@ class MagicLinkMail extends Mailable
 
     public function build(): self
     {
-        return $this->subject('Bağış Geçmişiniz için bağlantı')
+        return $this->subject('Bağış geçmişiniz – Özgür Yazılım Derneği')
             ->view('emails.magic-link');
     }
 }
