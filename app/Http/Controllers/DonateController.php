@@ -278,7 +278,7 @@ class DonateController extends Controller
                 ]));
             }
 
-            return redirect()->route('home')->with('success', 'Bağışınız için çok teşekkür ederiz. E-posta adresinize işlem detayları gönderilmiştir. Bankanız tarafından düzenlenen dekont ya da hesap özetleri alındı belgesi (makbuz) yerine geçmektedir. (Dernekler Kanunu Md. 11)');
+            return redirect()->route('home')->with('success', 'Bağışınız için çok teşekkür ederiz, detaylar e-posta adresinize gönderilmiştir. Bankanız tarafından düzenlenen dekont ya da hesap özetleri alındı belgesi (makbuz) yerine geçmektedir. (Dernekler Kanunu Md. 11)');
         }
 
         Log::warning('donate.callback_payment_failed', [

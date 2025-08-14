@@ -13,7 +13,7 @@
       </button>
     </div>
     <div class="font-mono text-xs bg-gray-50 p-2 rounded border break-all">{{ config('payments.bitcoin.address') }}</div>
-    <div class="text-xs text-gray-500">Açıklama: Donation {{ now()->format('Y-m-d') }}</div>
+    <div class="text-xs text-gray-500">Farklı kripto birimleri için bizimle iletişime geçebilirsiniz.</div>
   </div>
 </div>
 
