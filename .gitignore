@@ -1,1 +1,16 @@
 node_modules
+.env
+.env.testing
+.env.*.local
+.phpunit.result.cache
+package-lock.json
+public/build/
+public/images/
+vendor/
+storage/logs/*.log
+storage/framework/cache/*
+storage/framework/sessions/*
+storage/framework/views/*
+storage/app/*
+bootstrap/cache/*
+database/database.sqlite
