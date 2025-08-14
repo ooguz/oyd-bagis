@@ -129,50 +129,49 @@ class IyzicoPaymentService
                 'fraud_status' => $result->getFraudStatus(),
                 'error_code' => $result->getErrorCode(),
                 'error_message' => $result->getErrorMessage(),
-                'raw_result' => [
-                    'status' => $result->getStatus(),
-                    'paymentStatus' => $result->getPaymentStatus(),
-                    'fraudStatus' => $result->getFraudStatus(),
-                    'errorCode' => $result->getErrorCode(),
-                    'errorMessage' => $result->getErrorMessage(),
-                    'paymentId' => $result->getPaymentId(),
-                    'conversationId' => $result->getConversationId(),
-                ],
+                'payment_id' => $result->getPaymentId(),
+                'conversation_id' => $result->getConversationId(),
             ]);
 
+            // Check if payment was successful
             if ($result->getStatus() === 'success' && $result->getPaymentStatus() === 'SUCCESS') {
                 Log::info('iyzico.payment_retrieve_success', [
                     'token' => $token,
                     'payment_id' => $result->getPaymentId(),
                 ]);
                 
+                // Only use methods we know exist
+                $rawData = [
+                    'status' => $result->getStatus(),
+                    'paymentStatus' => $result->getPaymentStatus(),
+                    'fraudStatus' => $result->getFraudStatus(),
+                    'paymentId' => $result->getPaymentId(),
+                    'conversationId' => $result->getConversationId(),
+                ];
+                
+                // Safely add optional fields if they exist
+                if (method_exists($result, 'getPrice')) {
+                    $rawData['price'] = $result->getPrice();
+                }
+                if (method_exists($result, 'getPaidPrice')) {
+                    $rawData['paidPrice'] = $result->getPaidPrice();
+                }
+                if (method_exists($result, 'getCurrency')) {
+                    $rawData['currency'] = $result->getCurrency();
+                }
+                if (method_exists($result, 'getLastFourDigits')) {
+                    $rawData['lastFourDigits'] = $result->getLastFourDigits();
+                }
+                if (method_exists($result, 'getCardType')) {
+                    $rawData['cardType'] = $result->getCardType();
+                }
+                
                 return [
                     'status' => 'success',
                     'paymentId' => $result->getPaymentId(),
-                    'cardLastFour' => $result->getBinNumber() ? substr($result->getBinNumber(), 0, 4) : null,
-                    'cardBrand' => $result->getCardType(),
-                    'raw' => [
-                        'paymentId' => $result->getPaymentId(),
-                        'paymentStatus' => $result->getPaymentStatus(),
-                        'fraudStatus' => $result->getFraudStatus(),
-                        'conversationId' => $result->getConversationId(),
-                        'price' => $result->getPrice(),
-                        'paidPrice' => $result->getPaidPrice(),
-                        'currency' => $result->getCurrency(),
-                        'installment' => $result->getInstallment(),
-                        'basketId' => $result->getBasketId(),
-                        'paymentGroup' => $result->getPaymentGroup(),
-                        'cardType' => $result->getCardType(),
-                        'cardAssociation' => $result->getCardAssociation(),
-                        'cardFamily' => $result->getCardFamily(),
-                        'binNumber' => $result->getBinNumber(),
-                        'lastFourDigits' => $result->getLastFourDigits(),
-                        'mdStatus' => $result->getMdStatus(),
-                        'authCode' => $result->getAuthCode(),
-                        'hostReference' => $result->getHostReference(),
-                        'transId' => $result->getTransId(),
-                        'orderId' => $result->getOrderId(),
-                    ],
+                    'cardLastFour' => $result->getLastFourDigits() ?? null,
+                    'cardBrand' => $result->getCardType() ?? null,
+                    'raw' => $rawData,
                 ];
             }
 
