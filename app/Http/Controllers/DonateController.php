@@ -104,7 +104,7 @@ class DonateController extends Controller
                         'errorMessage' => $result['errorMessage'] ?? 'Ödeme başarısız',
                     ], 422);
                 }
-                return back()->withErrors(['payment' => 'Ödeme başarısız oldu.'])->withInput();
+                return back()->withErrors(['payment' => 'Ödeme başarısız oldu. Hata nedeni: ' . self::getHumanReadableErrorMessage($result['errorMessage'] ?? 'Bilinmeyen hata', $result['raw']['errorCode'] ?? null)])->withInput();
             }
 
             [$firstName, $lastName] = self::splitFullName($donor->full_name);
@@ -149,6 +149,69 @@ class DonateController extends Controller
 
             return back()->withErrors(['payment' => 'Ödeme başlatılırken bir hata oluştu.'])->withInput();
         }
+    }
+
+    private static function getHumanReadableErrorMessage(string $errorMessage, ?string $errorCode = null): string
+    {
+        // Common Iyzico error codes and their Turkish translations
+        $errorTranslations = [
+            '10051' => 'Kart limiti yetersiz veya yetersiz bakiye',
+            '10052' => 'Kart bilgileri hatalı',
+            '10053' => 'Kart sahibi bilgileri hatalı',
+            '10054' => 'Kart son kullanma tarihi hatalı',
+            '10055' => 'CVC/CVV kodu hatalı',
+            '10056' => 'Kart numarası hatalı',
+            '10057' => 'Kart türü desteklenmiyor',
+            '10058' => '3D Secure doğrulaması başarısız',
+            '10059' => 'Ödeme işlemi zaman aşımına uğradı',
+            '10060' => 'Banka tarafından işlem reddedildi',
+            '10061' => 'Kart bloke edilmiş',
+            '10062' => 'Kart çalınmış/kayıp',
+            '10063' => 'Kart iptal edilmiş',
+            '10064' => 'Kart süresi dolmuş',
+            '10065' => 'Kart limiti aşıldı',
+            '10066' => 'Günlük işlem limiti aşıldı',
+            '10067' => 'Aylık işlem limiti aşıldı',
+            '10068' => 'Kart yurtdışı işlemlere kapalı',
+            '10069' => 'Kart internet işlemlerine kapalı',
+            '10070' => 'Kart telefon işlemlerine kapalı',
+        ];
+
+        // If we have a specific error code, use the translation
+        if ($errorCode && isset($errorTranslations[$errorCode])) {
+            return $errorTranslations[$errorCode];
+        }
+
+        // If the error message is already in Turkish, return as is
+        if (preg_match('/[çğıöşüÇĞIİÖŞÜ]/', $errorMessage)) {
+            return $errorMessage;
+        }
+
+        // Common English error patterns and their Turkish translations
+        $commonPatterns = [
+            '/insufficient.*funds?/i' => 'Yetersiz bakiye',
+            '/card.*declined/i' => 'Kart reddedildi',
+            '/invalid.*card/i' => 'Geçersiz kart',
+            '/expired.*card/i' => 'Süresi dolmuş kart',
+            '/invalid.*cvv/i' => 'Geçersiz CVC kodu',
+            '/3d.*secure.*failed/i' => '3D Secure doğrulaması başarısız',
+            '/timeout/i' => 'İşlem zaman aşımına uğradı',
+            '/bank.*rejected/i' => 'Banka tarafından reddedildi',
+            '/card.*blocked/i' => 'Kart bloke edilmiş',
+            '/stolen.*card/i' => 'Kart çalınmış/kayıp',
+            '/cancelled.*card/i' => 'Kart iptal edilmiş',
+            '/daily.*limit/i' => 'Günlük işlem limiti aşıldı',
+            '/monthly.*limit/i' => 'Aylık işlem limiti aşıldı',
+        ];
+
+        foreach ($commonPatterns as $pattern => $translation) {
+            if (preg_match($pattern, $errorMessage)) {
+                return $translation;
+            }
+        }
+
+        // If no specific translation found, return the original message
+        return $errorMessage;
     }
 
     public function callback(Request $request): RedirectResponse
@@ -231,7 +294,7 @@ class DonateController extends Controller
             'raw_payload' => $result['raw'] ?? $result,
         ]);
 
-        return redirect()->route('home')->withErrors(['payment' => 'Ödeme başarısız oldu.']);
+        return redirect()->route('home')->withErrors(['payment' => 'Ödeme başarısız oldu. Hata nedeni: ' . self::getHumanReadableErrorMessage($result['errorMessage'] ?? 'Bilinmeyen hata', $result['raw']['errorCode'] ?? null)]);
     }
 
     public static function parseAmountToMinor(string $input): int
