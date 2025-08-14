@@ -16,7 +16,7 @@ Route::post('/donate/start', [DonateController::class, 'start'])
     ->middleware('throttle:'.env('RATE_LIMIT_DONATE', 10).',1')
     ->name('donate.start');
 
-Route::post('/donate/callback', [DonateController::class, 'callback'])->name('donate.callback');
+Route::match(['GET', 'POST'], '/donate/callback', [DonateController::class, 'callback'])->name('donate.callback');
 
 Route::post('/webhooks/iyzico', [IyzicoWebhookController::class, 'handle']);
 

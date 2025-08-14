@@ -101,15 +101,76 @@ class IyzicoPaymentService
 
     public function retrievePaymentResult(string $token): array
     {
-        // In real integration, use \Iyzipay\Model\CheckoutForm::retrieve(...)
-        // Here we provide an interface for mocking in tests.
-        return [
-            'status' => 'success',
-            'paymentId' => null,
-            'cardLastFour' => null,
-            'cardBrand' => null,
-            'raw' => [],
-        ];
+        try {
+            $request = new \Iyzipay\Request\RetrieveCheckoutFormRequest();
+            $request->setToken($token);
+
+            $result = \Iyzipay\Model\CheckoutForm::retrieve($request, $this->client->getOptions());
+
+            Log::info('iyzico.payment_retrieve', [
+                'token' => $token,
+                'status' => $result->getStatus(),
+                'payment_status' => $result->getPaymentStatus(),
+                'fraud_status' => $result->getFraudStatus(),
+            ]);
+
+            if ($result->getStatus() === 'success' && $result->getPaymentStatus() === 'SUCCESS') {
+                return [
+                    'status' => 'success',
+                    'paymentId' => $result->getPaymentId(),
+                    'cardLastFour' => $result->getBinNumber() ? substr($result->getBinNumber(), 0, 4) : null,
+                    'cardBrand' => $result->getCardType(),
+                    'raw' => [
+                        'paymentId' => $result->getPaymentId(),
+                        'paymentStatus' => $result->getPaymentStatus(),
+                        'fraudStatus' => $result->getFraudStatus(),
+                        'conversationId' => $result->getConversationId(),
+                        'price' => $result->getPrice(),
+                        'paidPrice' => $result->getPaidPrice(),
+                        'currency' => $result->getCurrency(),
+                        'installment' => $result->getInstallment(),
+                        'basketId' => $result->getBasketId(),
+                        'paymentGroup' => $result->getPaymentGroup(),
+                        'cardType' => $result->getCardType(),
+                        'cardAssociation' => $result->getCardAssociation(),
+                        'cardFamily' => $result->getCardFamily(),
+                        'binNumber' => $result->getBinNumber(),
+                        'lastFourDigits' => $result->getLastFourDigits(),
+                        'mdStatus' => $result->getMdStatus(),
+                        'authCode' => $result->getAuthCode(),
+                        'hostReference' => $result->getHostReference(),
+                        'transId' => $result->getTransId(),
+                        'orderId' => $result->getOrderId(),
+                    ],
+                ];
+            }
+
+            return [
+                'status' => 'failure',
+                'errorMessage' => $result->getErrorMessage() ?: 'Payment failed',
+                'raw' => [
+                    'status' => $result->getStatus(),
+                    'errorCode' => $result->getErrorCode(),
+                    'errorMessage' => $result->getErrorMessage(),
+                    'paymentStatus' => $result->getPaymentStatus(),
+                    'fraudStatus' => $result->getFraudStatus(),
+                ],
+            ];
+        } catch (\Throwable $e) {
+            Log::error('iyzico.payment_retrieve_error', [
+                'token' => $token,
+                'message' => $e->getMessage(),
+            ]);
+
+            return [
+                'status' => 'failure',
+                'errorMessage' => 'Failed to retrieve payment result: ' . $e->getMessage(),
+                'raw' => [
+                    'error' => $e->getMessage(),
+                    'trace' => $e->getTraceAsString(),
+                ],
+            ];
+        }
     }
 
     public function createDirectPayment(Donation $donation, array $card): array
