@@ -154,18 +154,49 @@ class DonateController extends Controller
     public function callback(Request $request): RedirectResponse
     {
         $token = $request->input('token');
+        
+        Log::info('donate.callback_started', [
+            'token' => $token,
+            'request_data' => $request->all(),
+            'method' => $request->method(),
+            'url' => $request->fullUrl(),
+        ]);
+        
         if (!$token) {
+            Log::warning('donate.callback_no_token', [
+                'request_data' => $request->all(),
+            ]);
             return redirect()->route('home')->withErrors(['payment' => 'Geçersiz dönüş.']);
         }
 
         $donation = Donation::where('token', $token)->first();
         if (!$donation) {
+            Log::warning('donate.callback_donation_not_found', [
+                'token' => $token,
+                'request_data' => $request->all(),
+            ]);
             return redirect()->route('home')->withErrors(['payment' => 'İşlem bulunamadı.']);
         }
 
+        Log::info('donate.callback_donation_found', [
+            'donation_id' => $donation->id,
+            'donation_status' => $donation->status,
+            'token' => $token,
+        ]);
+
         $result = $this->payments->retrievePaymentResult($token);
+        
+        Log::info('donate.callback_payment_result', [
+            'donation_id' => $donation->id,
+            'result' => $result,
+        ]);
 
         if (($result['status'] ?? '') === 'success') {
+            Log::info('donate.callback_payment_success', [
+                'donation_id' => $donation->id,
+                'result' => $result,
+            ]);
+            
             $donation->update([
                 'status' => 'success',
                 'completed_at' => now(),
@@ -186,6 +217,13 @@ class DonateController extends Controller
 
             return redirect()->route('home')->with('success', 'Bağışınız için teşekkür ederiz. Makbuz e-postası gönderildi.');
         }
+
+        Log::warning('donate.callback_payment_failed', [
+            'donation_id' => $donation->id,
+            'result' => $result,
+            'result_status' => $result['status'] ?? 'undefined',
+            'error_message' => $result['errorMessage'] ?? 'No error message',
+        ]);
 
         $donation->update([
             'status' => 'failed',

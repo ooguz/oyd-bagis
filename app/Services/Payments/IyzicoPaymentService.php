@@ -30,7 +30,16 @@ class IyzicoPaymentService
         $request->setCurrency(Currency::TL);
         $request->setBasketId($donation->id);
         $request->setPaymentGroup('PRODUCT');
-        $request->setCallbackUrl(route('donate.callback'));
+        
+        $callbackUrl = route('donate.callback');
+        $request->setCallbackUrl($callbackUrl);
+        
+        Log::info('iyzico.checkout_callback_url', [
+            'donation_id' => $donation->id,
+            'callback_url' => $callbackUrl,
+            'app_url' => config('app.url'),
+        ]);
+        
         $request->setForceThreeDS($isThreeD ? '1' : '0');
 
         // Minimal buyer fields
@@ -102,19 +111,41 @@ class IyzicoPaymentService
     public function retrievePaymentResult(string $token): array
     {
         try {
+            Log::info('iyzico.payment_retrieve_start', [
+                'token' => $token,
+                'api_key' => config('services.iyzico.api_key'),
+                'base_url' => config('services.iyzico.base_url'),
+            ]);
+
             $request = new \Iyzipay\Request\RetrieveCheckoutFormRequest();
             $request->setToken($token);
 
             $result = \Iyzipay\Model\CheckoutForm::retrieve($request, $this->client->getOptions());
 
-            Log::info('iyzico.payment_retrieve', [
+            Log::info('iyzico.payment_retrieve_response', [
                 'token' => $token,
                 'status' => $result->getStatus(),
                 'payment_status' => $result->getPaymentStatus(),
                 'fraud_status' => $result->getFraudStatus(),
+                'error_code' => $result->getErrorCode(),
+                'error_message' => $result->getErrorMessage(),
+                'raw_result' => [
+                    'status' => $result->getStatus(),
+                    'paymentStatus' => $result->getPaymentStatus(),
+                    'fraudStatus' => $result->getFraudStatus(),
+                    'errorCode' => $result->getErrorCode(),
+                    'errorMessage' => $result->getErrorMessage(),
+                    'paymentId' => $result->getPaymentId(),
+                    'conversationId' => $result->getConversationId(),
+                ],
             ]);
 
             if ($result->getStatus() === 'success' && $result->getPaymentStatus() === 'SUCCESS') {
+                Log::info('iyzico.payment_retrieve_success', [
+                    'token' => $token,
+                    'payment_id' => $result->getPaymentId(),
+                ]);
+                
                 return [
                     'status' => 'success',
                     'paymentId' => $result->getPaymentId(),
@@ -145,6 +176,15 @@ class IyzicoPaymentService
                 ];
             }
 
+            Log::warning('iyzico.payment_retrieve_failure', [
+                'token' => $token,
+                'status' => $result->getStatus(),
+                'payment_status' => $result->getPaymentStatus(),
+                'fraud_status' => $result->getFraudStatus(),
+                'error_code' => $result->getErrorCode(),
+                'error_message' => $result->getErrorMessage(),
+            ]);
+
             return [
                 'status' => 'failure',
                 'errorMessage' => $result->getErrorMessage() ?: 'Payment failed',
@@ -160,6 +200,7 @@ class IyzicoPaymentService
             Log::error('iyzico.payment_retrieve_error', [
                 'token' => $token,
                 'message' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
             ]);
 
             return [
