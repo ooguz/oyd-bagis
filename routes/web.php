@@ -10,6 +10,8 @@ Route::get('/', function () {
     return view('welcome');
 })->name('home');
 
+Route::view('/kvkk-ve-gizlilik', 'policy')->name('policy');
+
 Route::post('/donate/start', [DonateController::class, 'start'])
     ->middleware('throttle:'.env('RATE_LIMIT_DONATE', 10).',1')
     ->name('donate.start');
