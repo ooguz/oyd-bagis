@@ -17,7 +17,7 @@ class DonationReceiptMail extends Mailable
 
     public function build(): self
     {
-        return $this->subject('Bağış Makbuzunuz – '.config('app.name'))
+        return $this->subject('Bağış onayınız – Özgür Yazılım Derneği')
             ->view('emails.donation-receipt');
     }
 }

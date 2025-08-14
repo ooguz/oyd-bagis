@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Bağış Makbuzunuz</title>
+    <title>Bağış onayınız</title>
     <style>
         body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
         .container { max-width: 600px; margin: 0 auto; padding: 20px; }
@@ -21,14 +21,14 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1>🎉 Bağış Makbuzunuz</h1>
-            <p>{{ config('app.name') }}</p>
+            <h1>🎉 Bağış Onayınız</h1>
+            <p>Özgür Yazılım Derneği</p>
         </div>
         
         <div class="content">
             <p>Merhaba <strong>{{ $donation->full_name }}</strong>,</p>
             
-            <p>{{ config('app.name') }} adına yapmış olduğunuz bağış için <strong>çok teşekkür ederiz</strong>! 🎊</p>
+            <p>Özgür Yazılım Derneği'ne yapmış olduğunuz bağış için <strong>çok teşekkür ederiz</strong>! 🎊</p>
             
             <div class="details">
                 <h3>📋 Bağış Detayları</h3>
@@ -75,12 +75,12 @@
                 Bankanız tarafından düzenlenen dekont ya da hesap özetleri alındı belgesi (makbuz) yerine geçmektedir. (Dernekler Kanunu Md. 11)
             </div>
             
-            <p>Bağışınız, toplum yararına yapılan çalışmalarımızda kullanılacaktır. Tekrar teşekkür ederiz!</p>
+            <p>Bağışınız, özgür yazılım mücadelesi ve "özgür yazılım, özgür toplum" hedefine ulaşmak için yaptığımız dernek çalışmalarımızda kullanılacaktır. Tekrardan çok teşekkür ederiz!</p>
         </div>
         
         <div class="footer">
             <p><strong>{{ config('app.name') }}</strong></p>
-            <p>Bu e-posta otomatik olarak gönderilmiştir. Lütfen yanıtlamayınız.</p>
+            <p>Bu e-posta otomatik olarak gönderilmiştir.</p>
         </div>
     </div>
 </body>
