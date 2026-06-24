@@ -10,15 +10,19 @@ class Subscription extends Model
     protected $fillable = [
         'donor_id',
         'plan_id',
+        'amount_minor',
         'status',
         'iyzico_sub_ref',
+        'iyzico_customer_ref',
         'started_at',
         'canceled_at',
+        'next_billing_at',
     ];
 
     protected $casts = [
-        'started_at' => 'datetime',
-        'canceled_at' => 'datetime',
+        'started_at'      => 'datetime',
+        'canceled_at'     => 'datetime',
+        'next_billing_at' => 'datetime',
     ];
 
     public function donor(): BelongsTo
@@ -30,7 +34,19 @@ class Subscription extends Model
     {
         return $this->belongsTo(SubscriptionPlan::class, 'plan_id');
     }
+
+    public function isActive(): bool
+    {
+        return $this->status === 'active';
+    }
+
+    public function isCancelled(): bool
+    {
+        return $this->status === 'cancelled';
+    }
+
+    public function isPaymentFailed(): bool
+    {
+        return $this->status === 'payment_failed';
+    }
 }
-
-
-

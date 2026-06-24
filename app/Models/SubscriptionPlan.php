@@ -11,8 +11,6 @@ class SubscriptionPlan extends Model
         'interval',
         'amount_minor',
         'iyzico_plan_ref',
+        'iyzico_product_ref',
     ];
 }
-
-
-

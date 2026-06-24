@@ -11,6 +11,7 @@ class Donor extends Model
         'email',
         'full_name',
         'last_donated_at',
+        'iyzico_customer_ref',
     ];
 
     protected $casts = [
@@ -21,7 +22,9 @@ class Donor extends Model
     {
         return $this->hasMany(Donation::class);
     }
+
+    public function subscriptions(): HasMany
+    {
+        return $this->hasMany(Subscription::class);
+    }
 }
-
-
-
