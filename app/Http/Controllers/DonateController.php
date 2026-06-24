@@ -4,9 +4,12 @@ namespace App\Http\Controllers;
 
 use App\Mail\AdminDonationNoticeMail;
 use App\Mail\DonationReceiptMail;
+use App\Mail\SubscriptionReceiptMail;
 use App\Models\Donation;
 use App\Models\Donor;
+use App\Models\Subscription;
 use App\Services\Payments\IyzicoPaymentService;
+use App\Services\Payments\IyzicoSubscriptionService;
 use App\Services\MobileDetectionService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -18,6 +21,7 @@ class DonateController extends Controller
 {
     public function __construct(
         private readonly IyzicoPaymentService $payments,
+        private readonly IyzicoSubscriptionService $subscriptions,
         private readonly MobileDetectionService $mobileDetection
     ) {
     }
@@ -27,10 +31,11 @@ class DonateController extends Controller
     public function start(Request $request)
     {
         $rules = [
-            'amount' => ['required', 'string'],
-            'full_name' => ['required', 'string', 'min:3', 'max:120'],
-            'email' => ['required', 'email'],
-            'notes' => ['nullable', 'string', 'max:1000'],
+            'amount'        => ['required', 'string'],
+            'full_name'     => ['required', 'string', 'min:3', 'max:120'],
+            'email'         => ['required', 'email'],
+            'notes'         => ['nullable', 'string', 'max:1000'],
+            'donation_type' => ['nullable', 'in:once,monthly'],
         ];
         if (config('payments.flow', 'checkout') === 'direct') {
             $rules['card_oneline'] = ['required', 'string', 'min:10'];
@@ -42,8 +47,16 @@ class DonateController extends Controller
             return back()->withErrors(['amount' => 'Minimum 1 TL tutar giriniz.'])->withInput();
         }
 
+        $donationType = $validated['donation_type'] ?? 'once';
+
+        // ── Monthly / Recurring ────────────────────────────────────────────────
+        if ($donationType === 'monthly') {
+            return $this->startMonthlyDonation($request, $validated, $amountMinor);
+        }
+
+        // ── One-time ───────────────────────────────────────────────────────────
         $threshold = (float) config('payments.three_d_threshold_major', 500.00);
-        $isThreeD = ($amountMinor / 100) > $threshold;
+        $isThreeD  = ($amountMinor / 100) > $threshold;
 
         $donor = Donor::firstOrCreate(
             ['email' => $validated['email']],
@@ -51,14 +64,14 @@ class DonateController extends Controller
         );
 
         $donation = Donation::create([
-            'donor_id' => $donor->id,
+            'donor_id'        => $donor->id,
             'conversation_id' => (string) Str::uuid(),
-            'amount_minor' => $amountMinor,
-            'currency' => config('payments.currency', 'TRY'),
-            'status' => 'pending',
-            'email' => $validated['email'],
-            'full_name' => $validated['full_name'],
-            'notes' => $validated['notes'] ?? null,
+            'amount_minor'    => $amountMinor,
+            'currency'        => config('payments.currency', 'TRY'),
+            'status'          => 'pending',
+            'email'           => $validated['email'],
+            'full_name'       => $validated['full_name'],
+            'notes'           => $validated['notes'] ?? null,
         ]);
 
         try {
@@ -72,11 +85,11 @@ class DonateController extends Controller
 
                 if (($result['status'] ?? '') === 'success') {
                     $donation->update([
-                        'status' => 'success',
+                        'status'      => 'success',
                         'completed_at' => now(),
-                        'payment_id' => $result['paymentId'] ?? null,
-                        'card_last4' => $result['cardLastFour'] ?? null,
-                        'card_brand' => $result['cardBrand'] ?? null,
+                        'payment_id'  => $result['paymentId'] ?? null,
+                        'card_last4'  => $result['cardLastFour'] ?? null,
+                        'card_brand'  => $result['cardBrand'] ?? null,
                         'raw_payload' => $result['raw'] ?? $result,
                     ]);
 
@@ -90,7 +103,7 @@ class DonateController extends Controller
 
                     if ($request->expectsJson()) {
                         return response()->json([
-                            'status' => 'success',
+                            'status'  => 'success',
                             'message' => 'Payment completed',
                         ]);
                     }
@@ -98,14 +111,14 @@ class DonateController extends Controller
                 }
 
                 $donation->update([
-                    'status' => 'failed',
+                    'status'       => 'failed',
                     'failed_reason' => $result['errorMessage'] ?? 'Ödeme başarısız',
-                    'raw_payload' => $result['raw'] ?? $result,
+                    'raw_payload'  => $result['raw'] ?? $result,
                 ]);
 
                 if ($request->expectsJson()) {
                     return response()->json([
-                        'status' => 'failure',
+                        'status'       => 'failure',
                         'errorMessage' => self::getHumanReadableErrorMessage($result['errorMessage'] ?? 'Ödeme başarısız'),
                     ], 422);
                 }
@@ -114,58 +127,217 @@ class DonateController extends Controller
 
             [$firstName, $lastName] = self::splitFullName($donor->full_name);
             $result = $this->payments->createCheckoutForm($donation, [
-                'name' => $firstName,
+                'name'    => $firstName,
                 'surname' => $lastName,
             ], $isThreeD);
 
             $donation->update([
-                'token' => $result['token'] ?? null,
-                'raw_payload' => $result,
+                'token'        => $result['token'] ?? null,
+                'raw_payload'  => $result,
                 'failed_reason' => ($result['status'] ?? '') !== 'success' ? ($result['errorMessage'] ?? null) : null,
             ]);
 
             // Check if mobile device and redirect directly to iyzico
             if ($this->mobileDetection->isMobileOrTablet($request) && !empty($result['paymentPageUrl'])) {
                 Log::info('donation.mobile_redirect', [
-                    'donation_id' => $donation->id,
-                    'device_type' => $this->mobileDetection->getDeviceType($request),
-                    'user_agent' => $request->userAgent(),
+                    'donation_id'      => $donation->id,
+                    'device_type'      => $this->mobileDetection->getDeviceType($request),
+                    'user_agent'       => $request->userAgent(),
                     'payment_page_url' => $result['paymentPageUrl'],
                 ]);
-                
+
                 return redirect()->away($result['paymentPageUrl']);
             }
 
             if ($request->expectsJson()) {
                 return response()->json([
-                    'status' => $result['status'] ?? 'failure',
+                    'status'              => $result['status'] ?? 'failure',
                     'checkoutFormContent' => $result['checkoutFormContent'] ?? null,
-                    'paymentPageUrl' => $result['paymentPageUrl'] ?? null,
-                    'token' => $result['token'] ?? null,
-                    'errorMessage' => ($result['status'] ?? '') !== 'success' ? self::getHumanReadableErrorMessage($result['errorMessage'] ?? 'Ödeme bileşeni yüklenemedi') : null,
+                    'paymentPageUrl'      => $result['paymentPageUrl'] ?? null,
+                    'token'               => $result['token'] ?? null,
+                    'errorMessage'        => ($result['status'] ?? '') !== 'success' ? self::getHumanReadableErrorMessage($result['errorMessage'] ?? 'Ödeme bileşeni yüklenemedi') : null,
                 ], ($result['status'] ?? '') === 'success' ? 200 : 422);
             }
 
             return view('welcome', [
                 'checkoutFormContent' => $result['checkoutFormContent'] ?? null,
-                'paymentPageUrl' => $result['paymentPageUrl'] ?? null,
-                'donation' => $donation,
-                'successMessage' => null,
-                'errorMessage' => ($result['status'] ?? '') !== 'success' ? self::getHumanReadableErrorMessage($result['errorMessage'] ?? 'Ödeme bileşeni yüklenemedi') : null,
+                'paymentPageUrl'      => $result['paymentPageUrl'] ?? null,
+                'donation'            => $donation,
+                'successMessage'      => null,
+                'errorMessage'        => ($result['status'] ?? '') !== 'success' ? self::getHumanReadableErrorMessage($result['errorMessage'] ?? 'Ödeme bileşeni yüklenemedi') : null,
             ]);
         } catch (\Throwable $e) {
             Log::error('donation.start_error', [
                 'donation_id' => $donation->id,
-                'message' => $e->getMessage(),
+                'message'     => $e->getMessage(),
             ]);
 
             $donation->update([
-                'status' => 'failed',
+                'status'       => 'failed',
                 'failed_reason' => 'Ödeme başlatılamadı',
             ]);
 
             return back()->withErrors(['payment' => 'Ödeme başlatılırken bir hata oluştu.'])->withInput();
         }
+    }
+
+    /**
+     * Handles the monthly subscription flow.
+     */
+    private function startMonthlyDonation(Request $request, array $validated, int $amountMinor)
+    {
+        $donor = Donor::firstOrCreate(
+            ['email' => $validated['email']],
+            ['full_name' => $validated['full_name']]
+        );
+
+        // Check if donor already has an active subscription with the same amount
+        $existingSub = $donor->subscriptions()
+            ->where('status', 'active')
+            ->where('amount_minor', $amountMinor)
+            ->first();
+
+        if ($existingSub) {
+            return back()->withErrors([
+                'payment' => 'Bu tutar için zaten aktif bir aylık bağışınız mevcut. Bağış geçmişinizden yönetebilirsiniz.',
+            ])->withInput();
+        }
+
+        try {
+            $plan = $this->subscriptions->ensurePlan($amountMinor);
+            $conversationId = (string) Str::uuid();
+            $callbackUrl = route('donate.subscription.callback');
+
+            $result = $this->subscriptions->initializeCheckoutForm(
+                $donor,
+                $plan,
+                $callbackUrl,
+                $conversationId
+            );
+
+            if (($result['status'] ?? '') !== 'success') {
+                Log::error('donation.monthly_init_failed', [
+                    'donor_id'     => $donor->id,
+                    'amount_minor' => $amountMinor,
+                    'error'        => $result['errorMessage'] ?? 'unknown',
+                ]);
+                return back()->withErrors([
+                    'payment' => 'Aylık bağış başlatılamadı: ' . self::getHumanReadableErrorMessage($result['errorMessage'] ?? 'Bilinmeyen hata'),
+                ])->withInput();
+            }
+
+            // Store a pending subscription record (linked by conversation_id via token)
+            $subscription = Subscription::create([
+                'donor_id'     => $donor->id,
+                'plan_id'      => $plan->id,
+                'amount_minor' => $amountMinor,
+                'status'       => 'pending',
+            ]);
+
+            // Persist the conversation_id & token on the subscription for callback lookup
+            $subscription->update([
+                'iyzico_sub_ref' => $result['token'], // temporary – will be replaced with real ref on callback
+            ]);
+
+            Log::info('donation.monthly_init', [
+                'donor_id'        => $donor->id,
+                'subscription_id' => $subscription->id,
+                'token'           => $result['token'],
+                'conversation_id' => $conversationId,
+            ]);
+
+            if ($request->expectsJson()) {
+                return response()->json([
+                    'status'              => 'success',
+                    'checkoutFormContent' => $result['checkoutFormContent'] ?? null,
+                    'token'               => $result['token'] ?? null,
+                ]);
+            }
+
+            return view('welcome', [
+                'checkoutFormContent' => $result['checkoutFormContent'] ?? null,
+                'paymentPageUrl'      => null,
+                'donation'            => null,
+                'successMessage'      => null,
+                'errorMessage'        => null,
+                'isMonthly'           => true,
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('donation.monthly_start_error', [
+                'donor_id' => $donor->id,
+                'message'  => $e->getMessage(),
+            ]);
+            return back()->withErrors(['payment' => 'Aylık bağış başlatılırken bir hata oluştu.'])->withInput();
+        }
+    }
+
+    /**
+     * Callback after the subscription checkout form completes.
+     */
+    public function subscriptionCallback(Request $request): RedirectResponse
+    {
+        $token = $request->input('token');
+
+        Log::info('donate.subscription_callback', [
+            'token'        => $token,
+            'request_data' => $request->all(),
+        ]);
+
+        if (!$token) {
+            return redirect()->route('home')->withErrors(['payment' => 'Geçersiz abonelik dönüşü.']);
+        }
+
+        // Find the pending subscription by temporary token stored in iyzico_sub_ref
+        $subscription = Subscription::where('iyzico_sub_ref', $token)
+            ->where('status', 'pending')
+            ->with('donor', 'plan')
+            ->first();
+
+        if (!$subscription) {
+            Log::warning('donate.subscription_callback_not_found', ['token' => $token]);
+            return redirect()->route('home')->withErrors(['payment' => 'Abonelik kaydı bulunamadı.']);
+        }
+
+        $result = $this->subscriptions->retrieveSubscriptionResult($token);
+
+        Log::info('donate.subscription_callback_result', [
+            'subscription_id' => $subscription->id,
+            'result'          => $result,
+        ]);
+
+        if (($result['status'] ?? '') === 'success') {
+            $subscription->update([
+                'status'               => 'active',
+                'iyzico_sub_ref'       => $result['subscriptionReferenceCode'] ?? $token,
+                'iyzico_customer_ref'  => $result['customerReferenceCode'] ?? null,
+                'started_at'           => now(),
+            ]);
+
+            // Also store the customer ref on the donor for card update flow
+            if ($result['customerReferenceCode'] ?? null) {
+                $subscription->donor->update([
+                    'iyzico_customer_ref' => $result['customerReferenceCode'],
+                ]);
+            }
+
+            // Send confirmation email
+            try {
+                Mail::to($subscription->donor->email)->queue(new SubscriptionReceiptMail($subscription));
+            } catch (\Throwable $e) {
+                Log::error('donate.subscription_mail_error', ['message' => $e->getMessage()]);
+            }
+
+            return redirect()->route('home')->with(
+                'success',
+                'Aylık bağışınız başarıyla başlatıldı! Her ay otomatik olarak tahsilat yapılacaktır. İptal etmek için bağış geçmişinizi ziyaret edebilirsiniz.'
+            );
+        }
+
+        $subscription->update(['status' => 'failed']);
+
+        return redirect()->route('home')->withErrors([
+            'payment' => 'Abonelik başlatılamadı: ' . self::getHumanReadableErrorMessage($result['errorMessage'] ?? 'Bilinmeyen hata'),
+        ]);
     }
 
     private static function getHumanReadableErrorMessage(string $errorMessage, ?string $errorCode = null): string
@@ -207,18 +379,18 @@ class DonateController extends Controller
         // Common English error patterns and their Turkish translations
         $commonPatterns = [
             '/insufficient.*funds?/i' => 'Yetersiz bakiye',
-            '/card.*declined/i' => 'Kart reddedildi',
-            '/invalid.*card/i' => 'Geçersiz kart',
-            '/expired.*card/i' => 'Süresi dolmuş kart',
-            '/invalid.*cvv/i' => 'Geçersiz CVC kodu',
-            '/3d.*secure.*failed/i' => '3D Secure doğrulaması başarısız',
-            '/timeout/i' => 'İşlem zaman aşımına uğradı',
-            '/bank.*rejected/i' => 'Banka tarafından reddedildi',
-            '/card.*blocked/i' => 'Kart bloke edilmiş',
-            '/stolen.*card/i' => 'Kart çalınmış/kayıp',
-            '/cancelled.*card/i' => 'Kart iptal edilmiş',
-            '/daily.*limit/i' => 'Günlük işlem limiti aşıldı',
-            '/monthly.*limit/i' => 'Aylık işlem limiti aşıldı',
+            '/card.*declined/i'        => 'Kart reddedildi',
+            '/invalid.*card/i'         => 'Geçersiz kart',
+            '/expired.*card/i'         => 'Süresi dolmuş kart',
+            '/invalid.*cvv/i'          => 'Geçersiz CVC kodu',
+            '/3d.*secure.*failed/i'    => '3D Secure doğrulaması başarısız',
+            '/timeout/i'               => 'İşlem zaman aşımına uğradı',
+            '/bank.*rejected/i'        => 'Banka tarafından reddedildi',
+            '/card.*blocked/i'         => 'Kart bloke edilmiş',
+            '/stolen.*card/i'          => 'Kart çalınmış/kayıp',
+            '/cancelled.*card/i'       => 'Kart iptal edilmiş',
+            '/daily.*limit/i'          => 'Günlük işlem limiti aşıldı',
+            '/monthly.*limit/i'        => 'Aylık işlem limiti aşıldı',
         ];
 
         foreach ($commonPatterns as $pattern => $translation) {
@@ -234,14 +406,14 @@ class DonateController extends Controller
     public function callback(Request $request): RedirectResponse
     {
         $token = $request->input('token');
-        
+
         Log::info('donate.callback_started', [
-            'token' => $token,
+            'token'        => $token,
             'request_data' => $request->all(),
-            'method' => $request->method(),
-            'url' => $request->fullUrl(),
+            'method'       => $request->method(),
+            'url'          => $request->fullUrl(),
         ]);
-        
+
         if (!$token) {
             Log::warning('donate.callback_no_token', [
                 'request_data' => $request->all(),
@@ -252,37 +424,37 @@ class DonateController extends Controller
         $donation = Donation::where('token', $token)->first();
         if (!$donation) {
             Log::warning('donate.callback_donation_not_found', [
-                'token' => $token,
+                'token'        => $token,
                 'request_data' => $request->all(),
             ]);
             return redirect()->route('home')->withErrors(['payment' => 'İşlem bulunamadı.']);
         }
 
         Log::info('donate.callback_donation_found', [
-            'donation_id' => $donation->id,
+            'donation_id'     => $donation->id,
             'donation_status' => $donation->status,
-            'token' => $token,
+            'token'           => $token,
         ]);
 
         $result = $this->payments->retrievePaymentResult($token);
-        
+
         Log::info('donate.callback_payment_result', [
             'donation_id' => $donation->id,
-            'result' => $result,
+            'result'      => $result,
         ]);
 
         if (($result['status'] ?? '') === 'success') {
             Log::info('donate.callback_payment_success', [
                 'donation_id' => $donation->id,
-                'result' => $result,
+                'result'      => $result,
             ]);
-            
+
             $donation->update([
-                'status' => 'success',
+                'status'      => 'success',
                 'completed_at' => now(),
-                'payment_id' => $result['paymentId'] ?? null,
-                'card_last4' => $result['cardLastFour'] ?? null,
-                'card_brand' => $result['cardBrand'] ?? null,
+                'payment_id'  => $result['paymentId'] ?? null,
+                'card_last4'  => $result['cardLastFour'] ?? null,
+                'card_brand'  => $result['cardBrand'] ?? null,
                 'raw_payload' => $result['raw'] ?? $result,
             ]);
 
@@ -299,16 +471,16 @@ class DonateController extends Controller
         }
 
         Log::warning('donate.callback_payment_failed', [
-            'donation_id' => $donation->id,
-            'result' => $result,
+            'donation_id'  => $donation->id,
+            'result'       => $result,
             'result_status' => $result['status'] ?? 'undefined',
             'error_message' => $result['errorMessage'] ?? 'No error message',
         ]);
 
         $donation->update([
-            'status' => 'failed',
+            'status'       => 'failed',
             'failed_reason' => $result['errorMessage'] ?? 'Ödeme başarısız',
-            'raw_payload' => $result['raw'] ?? $result,
+            'raw_payload'  => $result['raw'] ?? $result,
         ]);
 
         return redirect()->route('home')->withErrors(['payment' => 'Ödeme başarısız oldu. Hata nedeni: ' . self::getHumanReadableErrorMessage($result['errorMessage'] ?? 'Bilinmeyen hata', $result['raw']['errorCode'] ?? null)]);
@@ -337,10 +509,11 @@ class DonateController extends Controller
         if (count($parts) === 1) {
             return [$parts[0], 'NA'];
         }
-        $last = array_pop($parts);
+        $last  = array_pop($parts);
         $first = implode(' ', $parts);
         return [$first, $last];
     }
+
     private static function parseOnelineCard(string $input): ?array
     {
         $normalized = preg_replace('/\s+/', ' ', trim($input));
@@ -348,19 +521,16 @@ class DonateController extends Controller
             return null;
         }
         $number = preg_replace('/\D/', '', $m['num']);
-        $month = str_pad((string) ((int) $m['mm']), 2, '0', STR_PAD_LEFT);
-        $year = $m['yy'];
+        $month  = str_pad((string) ((int) $m['mm']), 2, '0', STR_PAD_LEFT);
+        $year   = $m['yy'];
         if (strlen($year) === 2) {
-            $year = '20'.$year;
+            $year = '20' . $year;
         }
         return [
-            'number' => $number,
+            'number'    => $number,
             'exp_month' => $month,
-            'exp_year' => $year,
-            'cvc' => $m['cvc'],
+            'exp_year'  => $year,
+            'cvc'       => $m['cvc'],
         ];
     }
 }
-
-
-
