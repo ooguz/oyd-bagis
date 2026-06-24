@@ -317,8 +317,8 @@ class IyzicoSubscriptionService
      */
     private function post(string $path, array $body): array
     {
-        $randomKey = Str::random(8);
-        $bodyJson  = json_encode($body, JSON_UNESCAPED_UNICODE);
+        $randomKey = uniqid();
+        $bodyJson  = json_encode($body);
 
         // Extract the /v2/... portion of the URL, matching the SDK logic
         $fullUrl  = $this->baseUrl . $path;
