@@ -169,7 +169,7 @@ class IyzicoSubscriptionService
                 'name'            => $firstName,
                 'surname'         => $lastName,
                 'email'           => $donor->email,
-                'gsmNumber'       => '+905000000000',  // placeholder – iyzico requires it
+                'gsmNumber'       => '+905350000000',  // placeholder – iyzico requires valid TR prefix
                 'identityNumber'  => '11111111111',    // placeholder
                 'billingAddress'  => [
                     'contactName' => $donor->full_name,
