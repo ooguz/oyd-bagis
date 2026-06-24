@@ -92,13 +92,14 @@ class IyzicoSubscriptionService
         }
 
         // Need to create the plan on iyzico
-        $productRef = $this->ensureProduct();
+        $productRef  = $this->ensureProduct();
         $amountMajor = number_format($amountMinor / 100, 2, '.', '');
 
+        // productReferenceCode goes in the URL path, not the request body
+        // Endpoint: POST /v2/subscription/products/{productReferenceCode}/pricing-plans
         $body = [
             'locale'               => 'tr',
             'conversationId'       => (string) Str::uuid(),
-            'productReferenceCode' => $productRef,
             'name'                 => 'Aylık ₺' . number_format($amountMinor / 100, 2, ',', '.') . ' Bağış',
             'price'                => $amountMajor,
             'currencyCode'         => 'TRY',
@@ -107,7 +108,7 @@ class IyzicoSubscriptionService
             'planPaymentType'      => 'RECURRING',
         ];
 
-        $response = $this->post('/v2/subscription/plans', $body);
+        $response = $this->post('/v2/subscription/products/' . $productRef . '/pricing-plans', $body);
 
         if (($response['status'] ?? '') !== 'success') {
             Log::error('iyzico.subscription.plan_create_failed', [
@@ -247,7 +248,7 @@ class IyzicoSubscriptionService
         }
 
         $response = $this->post(
-            '/v2/subscription/operation/cancel/' . $subscription->iyzico_sub_ref,
+            '/v2/subscription/subscriptions/' . $subscription->iyzico_sub_ref . '/cancel',
             ['locale' => 'tr']
         );
 
