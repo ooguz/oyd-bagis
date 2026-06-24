@@ -307,14 +307,37 @@ class IyzicoSubscriptionService
 
     /**
      * Makes an authenticated POST request to the iyzico v2 REST API.
+     *
+     * Auth algorithm (matches IyziAuthV2Generator in the iyzico PHP SDK):
+     *   signature = hex(HMAC-SHA256(randomKey + uriPath + requestBodyJson, secretKey))
+     *   header value = base64("apiKey:{key}&randomKey:{rnd}&signature:{sig}")
+     *   Authorization: IYZWSv2 {header value}
+     *
+     * The uriPath is extracted as everything from "/v2" onward (no query string).
      */
     private function post(string $path, array $body): array
     {
-        $randomKey  = Str::random(8);
-        $bodyJson   = json_encode($body);
-        $authString = $this->apiKey . $randomKey . $this->secretKey . $bodyJson;
-        $hash       = base64_encode(hash('sha256', $authString, true));
-        $authHeader = 'IYZWSv2 ' . base64_encode($this->apiKey . ':' . $randomKey . ':' . $hash);
+        $randomKey = Str::random(8);
+        $bodyJson  = json_encode($body, JSON_UNESCAPED_UNICODE);
+
+        // Extract the /v2/... portion of the URL, matching the SDK logic
+        $fullUrl  = $this->baseUrl . $path;
+        $v2Start  = strpos($fullUrl, '/v2');
+        $uriPath  = $v2Start !== false ? substr($fullUrl, $v2Start) : $path;
+        // Strip query string if present
+        if (($qPos = strpos($uriPath, '?')) !== false) {
+            $uriPath = substr($uriPath, 0, $qPos);
+        }
+
+        $dataToSign = $randomKey . $uriPath . $bodyJson;
+        $signature  = bin2hex(hash_hmac('sha256', $dataToSign, $this->secretKey, true));
+
+        $headerPayload = base64_encode(
+            'apiKey:' . $this->apiKey .
+            '&randomKey:' . $randomKey .
+            '&signature:' . $signature
+        );
+        $authHeader = 'IYZWSv2 ' . $headerPayload;
 
         try {
             $response = Http::withHeaders([
