@@ -11,7 +11,7 @@
 </head>
 <body class="bg-[#FDFDFC] text-[#1b1b18] min-h-screen">
     @include('components.site-header')
-    
+
     <div class="container mx-auto max-w-7xl p-4 pb-24">
         <!-- Header Section -->
         <div class="mb-8">
@@ -29,7 +29,23 @@
                     </a>
                 </div>
             </div>
-            
+
+            <!-- Flash messages -->
+            @if (session('success'))
+                <div class="mb-4 p-4 bg-green-50 border border-green-200 rounded-lg text-green-800 text-sm">
+                    ✅ {{ session('success') }}
+                </div>
+            @endif
+            @if ($errors->any())
+                <div class="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg">
+                    <ul class="list-disc list-inside text-red-700 text-sm">
+                        @foreach ($errors->all() as $error)
+                            <li>{{ $error }}</li>
+                        @endforeach
+                    </ul>
+                </div>
+            @endif
+
             <!-- Summary Cards -->
             <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
                 <div class="bg-white rounded-lg shadow p-4 border-l-4 border-blue-500">
@@ -45,7 +61,7 @@
                         </div>
                     </div>
                 </div>
-                
+
                 <div class="bg-white rounded-lg shadow p-4 border-l-4 border-green-500">
                     <div class="flex items-center">
                         <div class="p-2 bg-green-100 rounded-lg">
@@ -59,7 +75,7 @@
                         </div>
                     </div>
                 </div>
-                
+
                 <div class="bg-white rounded-lg shadow p-4 border-l-4 border-red-500">
                     <div class="flex items-center">
                         <div class="p-2 bg-red-100 rounded-lg">
@@ -73,7 +89,7 @@
                         </div>
                     </div>
                 </div>
-                
+
                 <div class="bg-white rounded-lg shadow p-4 border-l-4 border-purple-500">
                     <div class="flex items-center">
                         <div class="p-2 bg-purple-100 rounded-lg">
@@ -90,13 +106,157 @@
             </div>
         </div>
 
-        <!-- Donations List -->
+        <!-- ═══════════════════════════════════════════════════════════════════ -->
+        <!-- Subscriptions Section                                               -->
+        <!-- ═══════════════════════════════════════════════════════════════════ -->
+        @if($activeSubscriptions->count() > 0)
+        <div class="mb-8">
+            <div class="bg-white rounded-lg shadow">
+                <div class="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+                    <div>
+                        <h2 class="text-xl font-semibold text-gray-900">🔄 Aylık Bağış Abonelikleriniz</h2>
+                        <p class="text-sm text-gray-600 mt-1">Düzenli bağış aboneliklerinizi buradan yönetebilirsiniz.</p>
+                    </div>
+                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
+                        {{ $activeSubscriptions->where('status', 'active')->count() }} aktif
+                    </span>
+                </div>
+
+                <div class="divide-y divide-gray-100">
+                    @foreach($activeSubscriptions as $subscription)
+                    <div class="px-6 py-5" x-data="{ confirmCancel: false, showCardUpdate: false }">
+                        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                            <!-- Subscription info -->
+                            <div class="flex items-start gap-4">
+                                <div class="flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center
+                                    {{ $subscription->isActive() ? 'bg-green-100' : ($subscription->isCancelled() ? 'bg-gray-100' : 'bg-red-100') }}">
+                                    @if($subscription->isActive())
+                                        <svg class="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                                        </svg>
+                                    @elseif($subscription->isCancelled())
+                                        <svg class="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/>
+                                        </svg>
+                                    @else
+                                        <svg class="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+                                        </svg>
+                                    @endif
+                                </div>
+                                <div>
+                                    <div class="flex items-center gap-2 flex-wrap">
+                                        <span class="text-lg font-bold text-gray-900">
+                                            ₺{{ number_format($subscription->amount_minor / 100, 2, ',', '.') }}/ay
+                                        </span>
+                                        @if($subscription->isActive())
+                                            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                                ✅ Aktif
+                                            </span>
+                                        @elseif($subscription->isCancelled())
+                                            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
+                                                🚫 İptal edildi
+                                            </span>
+                                        @elseif($subscription->isPaymentFailed())
+                                            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700">
+                                                ⚠️ Ödeme başarısız
+                                            </span>
+                                        @else
+                                            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                                                ⏳ Beklemede
+                                            </span>
+                                        @endif
+                                    </div>
+                                    <div class="text-sm text-gray-500 mt-1 space-x-3">
+                                        @if($subscription->started_at)
+                                            <span>Başladı: {{ $subscription->started_at->timezone('Europe/Istanbul')->format('d.m.Y') }}</span>
+                                        @endif
+                                        @if($subscription->canceled_at)
+                                            <span>· İptal: {{ $subscription->canceled_at->timezone('Europe/Istanbul')->format('d.m.Y') }}</span>
+                                        @endif
+                                        @if($subscription->next_billing_at && $subscription->isActive())
+                                            <span>· Sonraki: {{ $subscription->next_billing_at->timezone('Europe/Istanbul')->format('d.m.Y') }}</span>
+                                        @endif
+                                    </div>
+                                    @if($subscription->isPaymentFailed())
+                                        <p class="text-xs text-red-600 mt-1">
+                                            Son ödeme tahsil edilemedi. Aboneliğinizin devam etmesi için kart bilgilerinizi güncelleyin.
+                                        </p>
+                                    @endif
+                                </div>
+                            </div>
+
+                            <!-- Action buttons (only for active / payment_failed) -->
+                            @if($subscription->isActive() || $subscription->isPaymentFailed())
+                            <div class="flex items-center gap-2 flex-shrink-0">
+                                <!-- Card Update button -->
+                                <form method="POST"
+                                      action="{{ route('donations.subscription.card-update', $subscription) }}">
+                                    @csrf
+                                    <input type="hidden" name="magic_token" value="{{ $magicLinkToken }}">
+                                    <button type="submit"
+                                            class="inline-flex items-center gap-1.5 px-3 py-2 text-sm border border-gray-300 rounded-lg text-gray-700 hover:border-[#4c2447] hover:text-[#4c2447] transition-colors">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"/>
+                                        </svg>
+                                        Kartı Güncelle
+                                    </button>
+                                </form>
+
+                                <!-- Cancel button (with confirmation) -->
+                                @if($subscription->isActive())
+                                <div>
+                                    <button type="button"
+                                            @click="confirmCancel = true"
+                                            x-show="!confirmCancel"
+                                            class="inline-flex items-center gap-1.5 px-3 py-2 text-sm border border-red-200 rounded-lg text-red-600 hover:bg-red-50 transition-colors">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                                        </svg>
+                                        İptal Et
+                                    </button>
+
+                                    <!-- Confirmation state -->
+                                    <div x-show="confirmCancel" x-cloak
+                                         class="flex items-center gap-2 p-2 bg-red-50 border border-red-200 rounded-lg">
+                                        <span class="text-xs text-red-700 font-medium">Aboneliği iptal etmek istediğinizden emin misiniz?</span>
+                                        <form method="POST"
+                                              action="{{ route('donations.subscription.cancel', $subscription) }}"
+                                              class="inline">
+                                            @csrf
+                                            <input type="hidden" name="magic_token" value="{{ $magicLinkToken }}">
+                                            <button type="submit"
+                                                    class="px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 transition-colors">
+                                                Evet, İptal Et
+                                            </button>
+                                        </form>
+                                        <button type="button"
+                                                @click="confirmCancel = false"
+                                                class="px-2 py-1 text-xs border border-gray-300 rounded text-gray-600 hover:bg-gray-50 transition-colors">
+                                            Vazgeç
+                                        </button>
+                                    </div>
+                                </div>
+                                @endif
+                            </div>
+                            @endif
+                        </div>
+                    </div>
+                    @endforeach
+                </div>
+            </div>
+        </div>
+        @endif
+
+        <!-- ═══════════════════════════════════════════════════════════════════ -->
+        <!-- Donations List                                                       -->
+        <!-- ═══════════════════════════════════════════════════════════════════ -->
         <div class="bg-white rounded-lg shadow">
             <div class="px-6 py-4 border-b border-gray-200">
                 <h2 class="text-xl font-semibold text-gray-900">Bağış Detayları</h2>
                 <p class="text-sm text-gray-600 mt-1">Son 24 ay içindeki tüm bağış işlemleriniz</p>
             </div>
-            
+
             @if($donations->count() > 0)
                 <div class="overflow-x-auto">
                     <table class="min-w-full divide-y divide-gray-200">
@@ -125,8 +285,11 @@
                                                 ✅ {{ $donation->completed_at->timezone('Europe/Istanbul')->format('H:i') }} tamamlandı
                                             </div>
                                         @endif
+                                        @if($donation->notes === 'Aylık otomatik bağış')
+                                            <div class="text-xs text-purple-600 mt-0.5">🔄 Aylık</div>
+                                        @endif
                                     </td>
-                                    
+
                                     <td class="px-6 py-4 whitespace-nowrap">
                                         <div class="text-lg font-bold text-gray-900">
                                             ₺{{ number_format($donation->amount_minor / 100, 2, ',', '.') }}
@@ -135,7 +298,7 @@
                                             {{ $donation->currency ?? 'TRY' }}
                                         </div>
                                     </td>
-                                    
+
                                     <td class="px-6 py-4 whitespace-nowrap">
                                         @if($donation->status === 'success')
                                             <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
@@ -159,21 +322,21 @@
                                                 Beklemede
                                             </span>
                                         @endif
-                                        
+
                                         @if($donation->status === 'failed' && $donation->failed_reason)
                                             <div class="text-xs text-red-600 mt-1">
                                                 {{ $donation->failed_reason }}
                                             </div>
                                         @endif
                                     </td>
-                                    
+
                                     <td class="px-6 py-4 whitespace-nowrap">
                                         @if($donation->payment_id)
                                             <div class="text-sm font-medium text-gray-900">
                                                 ID: {{ $donation->payment_id }}
                                             </div>
                                         @endif
-                                        
+
                                         @if($donation->card_last4)
                                             <div class="text-sm text-gray-600">
                                                 💳 **** **** **** {{ $donation->card_last4 }}
@@ -184,18 +347,22 @@
                                                 </div>
                                             @endif
                                         @endif
-                                        
+
                                         @if(!$donation->payment_id && !$donation->card_last4)
                                             <div class="text-sm text-gray-500">
                                                 -
                                             </div>
                                         @endif
                                     </td>
-                                    
+
                                     <td class="px-6 py-4">
-                                        @if($donation->notes)
+                                        @if($donation->notes && $donation->notes !== 'Aylık otomatik bağış')
                                             <div class="text-sm text-gray-900 max-w-xs">
                                                 {{ $donation->notes }}
+                                            </div>
+                                        @elseif($donation->notes === 'Aylık otomatik bağış')
+                                            <div class="text-sm text-purple-600 italic">
+                                                🔄 Aylık otomatik
                                             </div>
                                         @else
                                             <div class="text-sm text-gray-500 italic">
@@ -203,7 +370,7 @@
                                             </div>
                                         @endif
                                     </td>
-                                    
+
                                     <td class="px-6 py-4 whitespace-nowrap">
                                         <div class="text-xs font-mono text-gray-600 bg-gray-100 px-2 py-1 rounded">
                                             {{ $donation->conversation_id }}
@@ -254,6 +421,9 @@
                                 <div class="flex-1 min-w-0">
                                     <p class="text-sm font-medium text-gray-900 truncate">
                                         {{ $donation->created_at->timezone('Europe/Istanbul')->format('d.m.Y H:i') }} - ₺{{ number_format($donation->amount_minor / 100, 2, ',', '.') }}
+                                        @if($donation->notes === 'Aylık otomatik bağış')
+                                            <span class="text-purple-600 text-xs">🔄</span>
+                                        @endif
                                     </p>
                                     <p class="text-sm text-gray-500">
                                         {{ $donation->status === 'success' ? 'Başarılı' : ($donation->status === 'failed' ? 'Başarısız' : 'Beklemede') }}
@@ -316,6 +486,16 @@
                                 </span>
                             </div>
                         </div>
+                        @if($activeSubscriptions->where('status','active')->count() > 0)
+                        <div class="pt-2 border-t border-gray-100">
+                            <div class="flex justify-between text-sm">
+                                <span class="text-gray-600">Aylık Abonelik</span>
+                                <span class="font-medium text-purple-700">
+                                    ₺{{ number_format($activeSubscriptions->where('status','active')->sum('amount_minor') / 100, 2, ',', '.') }}/ay
+                                </span>
+                            </div>
+                        </div>
+                        @endif
                     </div>
                 </div>
             </div>
