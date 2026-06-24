@@ -31,8 +31,66 @@
                     @isset($errorMessage)
                         <div class="p-3 mb-3 text-sm rounded bg-red-50 border border-red-200 text-red-700">{{ $errorMessage }}</div>
                     @endisset
-                    <form method="POST" action="{{ route('donate.start') }}" class="space-y-4">
+
+                    <form method="POST" action="{{ route('donate.start') }}" class="space-y-4"
+                          x-data="{ donationType: '{{ old('donation_type', 'once') }}' }">
                         @csrf
+
+                        {{-- ── Donation Type Toggle ─────────────────────────────────── --}}
+                        <div>
+                            <label class="block text-sm font-medium mb-2 text-gray-700">Bağış türü</label>
+                            <div class="grid grid-cols-2 gap-2">
+                                <button type="button" id="btn-once"
+                                    @click="donationType = 'once'"
+                                    :class="donationType === 'once'
+                                        ? 'bg-[#4c2447] text-white border-[#4c2447] shadow-sm'
+                                        : 'bg-white text-gray-700 border-gray-300 hover:border-[#4c2447] hover:text-[#4c2447]'"
+                                    class="flex items-center justify-center gap-2 px-4 py-3 border-2 rounded-lg text-sm font-medium transition-all duration-150">
+                                    <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                              d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1"/>
+                                    </svg>
+                                    Tek seferlik
+                                </button>
+                                <button type="button" id="btn-monthly"
+                                    @click="donationType = 'monthly'"
+                                    :class="donationType === 'monthly'
+                                        ? 'bg-[#4c2447] text-white border-[#4c2447] shadow-sm'
+                                        : 'bg-white text-gray-700 border-gray-300 hover:border-[#4c2447] hover:text-[#4c2447]'"
+                                    class="flex items-center justify-center gap-2 px-4 py-3 border-2 rounded-lg text-sm font-medium transition-all duration-150">
+                                    <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                                    </svg>
+                                    Aylık düzenli
+                                </button>
+                            </div>
+                            <input type="hidden" name="donation_type" :value="donationType">
+
+                            {{-- Monthly info box --}}
+                            <div x-show="donationType === 'monthly'"
+                                 x-transition:enter="transition ease-out duration-200"
+                                 x-transition:enter-start="opacity-0 translate-y-1"
+                                 x-transition:enter-end="opacity-100 translate-y-0"
+                                 class="mt-3 p-3 bg-purple-50 border border-purple-200 rounded-lg text-sm text-purple-800">
+                                <div class="flex items-start gap-2">
+                                    <svg class="w-4 h-4 mt-0.5 flex-shrink-0 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                              d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                    </svg>
+                                    <div>
+                                        <strong class="block mb-1">Aylık düzenli bağış hakkında:</strong>
+                                        <ul class="space-y-1 text-xs list-none">
+                                            <li>🔄 Her ay, girdiğiniz tutar kartınızdan otomatik tahsil edilir.</li>
+                                            <li>✅ İlk tahsilat hemen başlar; devamı her ay aynı günde tekrarlanır.</li>
+                                            <li>🚫 İstediğiniz zaman bağış geçmişinizden aboneliğinizi iptal edebilirsiniz.</li>
+                                            <li>💳 Yalnızca kredi kartları ile kullanılabilir.</li>
+                                        </ul>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
                         <x-amount-picker />
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div>
@@ -44,7 +102,7 @@
                                 <input name="email" type="email" value="{{ old('email') }}" class="w-full border rounded px-3 py-2" placeholder="ornek@example.com" required>
                             </div>
                         </div>
-                        <div>
+                        <div x-show="donationType === 'once'">
                             <label class="block text-sm mb-1">Not (opsiyonel)</label>
                             <textarea name="notes" class="w-full border rounded px-3 py-2" rows="2" placeholder="Özel taleplerinizi buraya yazabilirsiniz (ör. makbuz, alındı belgesi, bir kişi/kurum adına bağış vb.)">{{ old('notes') }}</textarea>
                         </div>
@@ -64,7 +122,11 @@
                             @endif
                         </div>
                         <div class="flex items-center justify-between">
-                            <button type="submit" class="bg-[#4c2447] text-white px-4 py-2 rounded">Bağış Yap</button>
+                            <button type="submit" id="submit-donation"
+                                    class="bg-[#4c2447] text-white px-5 py-2 rounded font-medium hover:bg-[#3a1c35] transition-colors"
+                                    x-text="donationType === 'monthly' ? '🔄 Aylık Bağışı Başlat' : '💙 Bağış Yap'">
+                                Bağış Yap
+                            </button>
                            <a href="/kvkk-ve-gizlilik" class="text-xs text-gray-500">Kişisel Veri ve Gizlilik Politikamız</a>
                         </div>
                     </form>
@@ -99,5 +161,3 @@
         @include('components.top-banner')
     </body>
 </html>
-
-
