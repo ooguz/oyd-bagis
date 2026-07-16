@@ -33,6 +33,7 @@ class DonateController extends Controller
             'email' => ['required', 'email'],
             'notes' => ['nullable', 'string', 'max:1000'],
             'donation_type' => ['nullable', 'in:once,monthly'],
+            'phone' => ['nullable', 'string', 'max:20'],
         ];
         if (config('payments.flow', 'checkout') === 'direct') {
             $rules['card_oneline'] = ['required', 'string', 'min:10'];
@@ -182,10 +183,23 @@ class DonateController extends Controller
 
     private function startMonthlyDonation(Request $request, array $validated, int $amountMinor)
     {
+        // iyzico creates a card-storage consumer account keyed by the GSM number
+        // for subscriptions, so a real number is needed here.
+        $phone = self::normalizeTurkishGsm($validated['phone'] ?? null);
+        if (! $phone) {
+            return back()->withErrors([
+                'phone' => 'Aylık bağış için geçerli bir cep telefonu numarası giriniz (örn. 05xx xxx xx xx).',
+            ])->withInput();
+        }
+
         $donor = Donor::firstOrCreate(
             ['email' => $validated['email']],
             ['full_name' => $validated['full_name']]
         );
+
+        if ($donor->phone !== $phone) {
+            $donor->update(['phone' => $phone]);
+        }
 
         $hasActiveSameAmount = $donor->subscriptions()
             ->where('status', 'active')
@@ -499,6 +513,29 @@ class DonateController extends Controller
         $first = implode(' ', $parts);
 
         return [$first, $last];
+    }
+
+    /**
+     * Normalizes "05xx...", "5xx...", "90 5xx..." and "+90 5xx..." inputs
+     * to E.164 (+905xxxxxxxxx); returns null when it isn't a TR mobile number.
+     */
+    private static function normalizeTurkishGsm(?string $input): ?string
+    {
+        $digits = preg_replace('/\D/', '', (string) $input);
+
+        if (str_starts_with($digits, '0090')) {
+            $digits = substr($digits, 4);
+        } elseif (strlen($digits) === 12 && str_starts_with($digits, '90')) {
+            $digits = substr($digits, 2);
+        } elseif (strlen($digits) === 11 && str_starts_with($digits, '0')) {
+            $digits = substr($digits, 1);
+        }
+
+        if (strlen($digits) === 10 && str_starts_with($digits, '5')) {
+            return '+90'.$digits;
+        }
+
+        return null;
     }
 
     private static function parseOnelineCard(string $input): ?array

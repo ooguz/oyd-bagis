@@ -80,6 +80,14 @@
                                 <input name="email" type="email" value="{{ old('email') }}" class="w-full border rounded px-3 py-2" placeholder="ornek@example.com" required>
                             </div>
                         </div>
+                        <div x-show="donationType === 'monthly'" x-cloak>
+                            <label class="block text-sm mb-1">Cep telefonu</label>
+                            <input name="phone" type="tel" value="{{ old('phone') }}" class="w-full border rounded px-3 py-2"
+                                   placeholder="05xx xxx xx xx" :required="donationType === 'monthly'">
+                            <p class="mt-1 text-xs text-gray-500">
+                                Aylık bağışta kartınız iyzico tarafından güvenle saklanır; iyzico bunun için cep telefonu numaranızı kullanır.
+                            </p>
+                        </div>
                         <div x-show="donationType === 'once'">
                             <label class="block text-sm mb-1">Not (opsiyonel)</label>
                             <textarea name="notes" class="w-full border rounded px-3 py-2" rows="2" placeholder="Özel taleplerinizi buraya yazabilirsiniz (ör. makbuz, alındı belgesi, bir kişi/kurum adına bağış vb.)">{{ old('notes') }}</textarea>
