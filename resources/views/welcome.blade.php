@@ -31,8 +31,44 @@
                     @isset($errorMessage)
                         <div class="p-3 mb-3 text-sm rounded bg-red-50 border border-red-200 text-red-700">{{ $errorMessage }}</div>
                     @endisset
-                    <form method="POST" action="{{ route('donate.start') }}" class="space-y-4">
+                    <form method="POST" action="{{ route('donate.start') }}" class="space-y-4"
+                          x-data="{ donationType: '{{ old('donation_type', 'once') }}' }">
                         @csrf
+                        @if (config('payments.features.subscriptions'))
+                            <div>
+                                <label class="block text-sm font-medium mb-2 text-gray-700">Bağış türü</label>
+                                <div class="grid grid-cols-2 gap-2">
+                                    <button type="button"
+                                        @click="donationType = 'once'"
+                                        :class="donationType === 'once'
+                                            ? 'bg-[#4c2447] text-white border-[#4c2447] shadow-sm'
+                                            : 'bg-white text-gray-700 border-gray-300 hover:border-[#4c2447] hover:text-[#4c2447]'"
+                                        class="flex items-center justify-center gap-2 px-4 py-3 border-2 rounded-lg text-sm font-medium transition-all duration-150">
+                                        Tek seferlik
+                                    </button>
+                                    <button type="button"
+                                        @click="donationType = 'monthly'"
+                                        :class="donationType === 'monthly'
+                                            ? 'bg-[#4c2447] text-white border-[#4c2447] shadow-sm'
+                                            : 'bg-white text-gray-700 border-gray-300 hover:border-[#4c2447] hover:text-[#4c2447]'"
+                                        class="flex items-center justify-center gap-2 px-4 py-3 border-2 rounded-lg text-sm font-medium transition-all duration-150">
+                                        🔄 Aylık düzenli
+                                    </button>
+                                </div>
+                                <input type="hidden" name="donation_type" :value="donationType">
+
+                                <div x-show="donationType === 'monthly'" x-cloak
+                                     class="mt-3 p-3 bg-purple-50 border border-purple-200 rounded-lg text-sm text-purple-800">
+                                    <strong class="block mb-1">Aylık düzenli bağış hakkında:</strong>
+                                    <ul class="space-y-1 text-xs list-none">
+                                        <li>🔄 Girdiğiniz tutar her ay kartınızdan otomatik tahsil edilir.</li>
+                                        <li>✅ İlk tahsilat hemen yapılır; devamı her ay aynı günde tekrarlanır.</li>
+                                        <li>🚫 Bağış geçmişinizden istediğiniz zaman iptal edebilirsiniz.</li>
+                                        <li>💳 Yalnızca kredi kartları ile kullanılabilir.</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        @endif
                         <x-amount-picker />
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div>
@@ -44,7 +80,7 @@
                                 <input name="email" type="email" value="{{ old('email') }}" class="w-full border rounded px-3 py-2" placeholder="ornek@example.com" required>
                             </div>
                         </div>
-                        <div>
+                        <div x-show="donationType === 'once'">
                             <label class="block text-sm mb-1">Not (opsiyonel)</label>
                             <textarea name="notes" class="w-full border rounded px-3 py-2" rows="2" placeholder="Özel taleplerinizi buraya yazabilirsiniz (ör. makbuz, alındı belgesi, bir kişi/kurum adına bağış vb.)">{{ old('notes') }}</textarea>
                         </div>
@@ -64,7 +100,8 @@
                             @endif
                         </div>
                         <div class="flex items-center justify-between">
-                            <button type="submit" class="bg-[#4c2447] text-white px-4 py-2 rounded">Bağış Yap</button>
+                            <button type="submit" class="bg-[#4c2447] text-white px-4 py-2 rounded"
+                                    x-text="donationType === 'monthly' ? 'Aylık Bağışı Başlat' : 'Bağış Yap'">Bağış Yap</button>
                            <a href="/kvkk-ve-gizlilik" class="text-xs text-gray-500">Kişisel Veri ve Gizlilik Politikamız</a>
                         </div>
                     </form>
