@@ -13,6 +13,8 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->validateCsrfTokens(except: [
             'donate/callback',
+            'donate/subscription/callback',
+            'donations/card-update/callback',
             'webhooks/*',
         ]);
     })

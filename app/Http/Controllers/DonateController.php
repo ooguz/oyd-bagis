@@ -4,10 +4,13 @@ namespace App\Http\Controllers;
 
 use App\Mail\AdminDonationNoticeMail;
 use App\Mail\DonationReceiptMail;
+use App\Mail\SubscriptionReceiptMail;
 use App\Models\Donation;
 use App\Models\Donor;
-use App\Services\Payments\IyzicoPaymentService;
+use App\Models\Subscription;
 use App\Services\MobileDetectionService;
+use App\Services\Payments\IyzicoPaymentService;
+use App\Services\Payments\IyzicoSubscriptionService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -18,11 +21,9 @@ class DonateController extends Controller
 {
     public function __construct(
         private readonly IyzicoPaymentService $payments,
+        private readonly IyzicoSubscriptionService $subscriptions,
         private readonly MobileDetectionService $mobileDetection
-    ) {
-    }
-
-
+    ) {}
 
     public function start(Request $request)
     {
@@ -31,6 +32,7 @@ class DonateController extends Controller
             'full_name' => ['required', 'string', 'min:3', 'max:120'],
             'email' => ['required', 'email'],
             'notes' => ['nullable', 'string', 'max:1000'],
+            'donation_type' => ['nullable', 'in:once,monthly'],
         ];
         if (config('payments.flow', 'checkout') === 'direct') {
             $rules['card_oneline'] = ['required', 'string', 'min:10'];
@@ -40,6 +42,14 @@ class DonateController extends Controller
         $amountMinor = self::parseAmountToMinor($validated['amount']);
         if ($amountMinor < 100) {
             return back()->withErrors(['amount' => 'Minimum 1 TL tutar giriniz.'])->withInput();
+        }
+
+        if (($validated['donation_type'] ?? 'once') === 'monthly') {
+            if (! config('payments.features.subscriptions')) {
+                return back()->withErrors(['payment' => 'Aylık düzenli bağış şu anda kullanılamıyor.'])->withInput();
+            }
+
+            return $this->startMonthlyDonation($request, $validated, $amountMinor);
         }
 
         $threshold = (float) config('payments.three_d_threshold_major', 500.00);
@@ -64,7 +74,7 @@ class DonateController extends Controller
         try {
             if (config('payments.flow', 'checkout') === 'direct') {
                 $card = self::parseOnelineCard($validated['card_oneline']);
-                if (!$card) {
+                if (! $card) {
                     return back()->withErrors(['card_oneline' => 'Kart bilgisi geçersiz. Lütfen "KartNo AA/YY CVC" formatında giriniz.'])->withInput();
                 }
 
@@ -94,6 +104,7 @@ class DonateController extends Controller
                             'message' => 'Payment completed',
                         ]);
                     }
+
                     return redirect()->route('home')->with('success', 'Bağışınız için teşekkür ederiz.');
                 }
 
@@ -109,7 +120,8 @@ class DonateController extends Controller
                         'errorMessage' => self::getHumanReadableErrorMessage($result['errorMessage'] ?? 'Ödeme başarısız'),
                     ], 422);
                 }
-                return back()->withErrors(['payment' => 'Ödeme başarısız oldu. Hata nedeni: ' . self::getHumanReadableErrorMessage($result['errorMessage'] ?? 'Bilinmeyen hata', $result['raw']['errorCode'] ?? null)])->withInput();
+
+                return back()->withErrors(['payment' => 'Ödeme başarısız oldu. Hata nedeni: '.self::getHumanReadableErrorMessage($result['errorMessage'] ?? 'Bilinmeyen hata', $result['raw']['errorCode'] ?? null)])->withInput();
             }
 
             [$firstName, $lastName] = self::splitFullName($donor->full_name);
@@ -125,14 +137,14 @@ class DonateController extends Controller
             ]);
 
             // Check if mobile device and redirect directly to iyzico
-            if ($this->mobileDetection->isMobileOrTablet($request) && !empty($result['paymentPageUrl'])) {
+            if ($this->mobileDetection->isMobileOrTablet($request) && ! empty($result['paymentPageUrl'])) {
                 Log::info('donation.mobile_redirect', [
                     'donation_id' => $donation->id,
                     'device_type' => $this->mobileDetection->getDeviceType($request),
                     'user_agent' => $request->userAgent(),
                     'payment_page_url' => $result['paymentPageUrl'],
                 ]);
-                
+
                 return redirect()->away($result['paymentPageUrl']);
             }
 
@@ -166,6 +178,148 @@ class DonateController extends Controller
 
             return back()->withErrors(['payment' => 'Ödeme başlatılırken bir hata oluştu.'])->withInput();
         }
+    }
+
+    private function startMonthlyDonation(Request $request, array $validated, int $amountMinor)
+    {
+        $donor = Donor::firstOrCreate(
+            ['email' => $validated['email']],
+            ['full_name' => $validated['full_name']]
+        );
+
+        $hasActiveSameAmount = $donor->subscriptions()
+            ->where('status', 'active')
+            ->where('amount_minor', $amountMinor)
+            ->exists();
+
+        if ($hasActiveSameAmount) {
+            return back()->withErrors([
+                'payment' => 'Bu tutar için zaten aktif bir aylık bağışınız mevcut. Bağış geçmişinizden yönetebilirsiniz.',
+            ])->withInput();
+        }
+
+        try {
+            $plan = $this->subscriptions->ensurePlan($amountMinor);
+            $conversationId = (string) Str::uuid();
+
+            $result = $this->subscriptions->createCheckoutForm(
+                $donor,
+                $plan,
+                route('donate.subscription.callback'),
+                $conversationId
+            );
+
+            if (($result['status'] ?? '') !== 'success' || empty($result['token'])) {
+                Log::error('donation.monthly_init_failed', [
+                    'donor_id' => $donor->id,
+                    'amount_minor' => $amountMinor,
+                    'error' => $result['errorMessage'] ?? 'unknown',
+                ]);
+
+                return back()->withErrors([
+                    'payment' => 'Aylık bağış başlatılamadı: '.self::getHumanReadableErrorMessage($result['errorMessage'] ?? 'Bilinmeyen hata'),
+                ])->withInput();
+            }
+
+            $subscription = Subscription::create([
+                'donor_id' => $donor->id,
+                'plan_id' => $plan->id,
+                'amount_minor' => $amountMinor,
+                'conversation_id' => $conversationId,
+                'status' => 'pending',
+                'checkout_token' => $result['token'],
+            ]);
+
+            Log::info('donation.monthly_init', [
+                'donor_id' => $donor->id,
+                'subscription_id' => $subscription->id,
+                'conversation_id' => $conversationId,
+            ]);
+
+            if ($request->expectsJson()) {
+                return response()->json([
+                    'status' => 'success',
+                    'checkoutFormContent' => $result['checkoutFormContent'] ?? null,
+                    'token' => $result['token'],
+                ]);
+            }
+
+            return view('welcome', [
+                'checkoutFormContent' => $result['checkoutFormContent'] ?? null,
+                'paymentPageUrl' => null,
+                'donation' => null,
+                'successMessage' => null,
+                'errorMessage' => null,
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('donation.monthly_start_error', [
+                'donor_id' => $donor->id,
+                'message' => $e->getMessage(),
+            ]);
+
+            return back()->withErrors(['payment' => 'Aylık bağış başlatılırken bir hata oluştu.'])->withInput();
+        }
+    }
+
+    public function subscriptionCallback(Request $request): RedirectResponse
+    {
+        $token = $request->input('token');
+
+        Log::info('donate.subscription_callback', [
+            'token' => $token,
+            'request_data' => $request->all(),
+        ]);
+
+        if (! $token) {
+            return redirect()->route('home')->withErrors(['payment' => 'Geçersiz abonelik dönüşü.']);
+        }
+
+        $subscription = Subscription::where('checkout_token', $token)
+            ->with('donor')
+            ->first();
+
+        if (! $subscription) {
+            Log::warning('donate.subscription_callback_not_found', ['token' => $token]);
+
+            return redirect()->route('home')->withErrors(['payment' => 'Abonelik kaydı bulunamadı.']);
+        }
+
+        if ($subscription->status !== 'pending') {
+            return redirect()->route('home')->with('success', 'Aylık bağışınız zaten işleme alındı.');
+        }
+
+        $result = $this->subscriptions->retrieveCheckoutFormResult($token);
+
+        if (($result['status'] ?? '') === 'success' && ($result['subscriptionStatus'] ?? 'ACTIVE') === 'ACTIVE') {
+            $subscription->update([
+                'status' => 'active',
+                'iyzico_sub_ref' => $result['subscriptionReferenceCode'] ?? null,
+                'iyzico_customer_ref' => $result['customerReferenceCode'] ?? null,
+                'started_at' => now(),
+                'next_billing_at' => now()->addMonth(),
+            ]);
+
+            if (! empty($result['customerReferenceCode'])) {
+                $subscription->donor->update(['iyzico_customer_ref' => $result['customerReferenceCode']]);
+            }
+
+            try {
+                Mail::to($subscription->donor->email)->queue(new SubscriptionReceiptMail($subscription));
+            } catch (\Throwable $e) {
+                Log::error('donate.subscription_mail_error', ['message' => $e->getMessage()]);
+            }
+
+            return redirect()->route('home')->with(
+                'success',
+                'Aylık bağışınız başarıyla başlatıldı! Her ay otomatik olarak tahsilat yapılacaktır. Bağış geçmişinizden istediğiniz zaman iptal edebilirsiniz.'
+            );
+        }
+
+        $subscription->update(['status' => 'failed']);
+
+        return redirect()->route('home')->withErrors([
+            'payment' => 'Aylık bağış başlatılamadı: '.self::getHumanReadableErrorMessage($result['errorMessage'] ?? 'Bilinmeyen hata'),
+        ]);
     }
 
     private static function getHumanReadableErrorMessage(string $errorMessage, ?string $errorCode = null): string
@@ -234,27 +388,29 @@ class DonateController extends Controller
     public function callback(Request $request): RedirectResponse
     {
         $token = $request->input('token');
-        
+
         Log::info('donate.callback_started', [
             'token' => $token,
             'request_data' => $request->all(),
             'method' => $request->method(),
             'url' => $request->fullUrl(),
         ]);
-        
-        if (!$token) {
+
+        if (! $token) {
             Log::warning('donate.callback_no_token', [
                 'request_data' => $request->all(),
             ]);
+
             return redirect()->route('home')->withErrors(['payment' => 'Geçersiz dönüş.']);
         }
 
         $donation = Donation::where('token', $token)->first();
-        if (!$donation) {
+        if (! $donation) {
             Log::warning('donate.callback_donation_not_found', [
                 'token' => $token,
                 'request_data' => $request->all(),
             ]);
+
             return redirect()->route('home')->withErrors(['payment' => 'İşlem bulunamadı.']);
         }
 
@@ -265,7 +421,7 @@ class DonateController extends Controller
         ]);
 
         $result = $this->payments->retrievePaymentResult($token);
-        
+
         Log::info('donate.callback_payment_result', [
             'donation_id' => $donation->id,
             'result' => $result,
@@ -276,7 +432,7 @@ class DonateController extends Controller
                 'donation_id' => $donation->id,
                 'result' => $result,
             ]);
-            
+
             $donation->update([
                 'status' => 'success',
                 'completed_at' => now(),
@@ -311,7 +467,7 @@ class DonateController extends Controller
             'raw_payload' => $result['raw'] ?? $result,
         ]);
 
-        return redirect()->route('home')->withErrors(['payment' => 'Ödeme başarısız oldu. Hata nedeni: ' . self::getHumanReadableErrorMessage($result['errorMessage'] ?? 'Bilinmeyen hata', $result['raw']['errorCode'] ?? null)]);
+        return redirect()->route('home')->withErrors(['payment' => 'Ödeme başarısız oldu. Hata nedeni: '.self::getHumanReadableErrorMessage($result['errorMessage'] ?? 'Bilinmeyen hata', $result['raw']['errorCode'] ?? null)]);
     }
 
     public static function parseAmountToMinor(string $input): int
@@ -322,8 +478,10 @@ class DonateController extends Controller
             [$l, $r] = array_pad(explode('.', $normalized, 2), 2, '0');
             $r = substr(str_pad(preg_replace('/\D/', '', $r), 2, '0'), 0, 2);
             $l = preg_replace('/\D/', '', $l);
+
             return ((int) $l) * 100 + (int) $r;
         }
+
         return ((int) preg_replace('/\D/', '', $normalized)) * 100;
     }
 
@@ -339,12 +497,14 @@ class DonateController extends Controller
         }
         $last = array_pop($parts);
         $first = implode(' ', $parts);
+
         return [$first, $last];
     }
+
     private static function parseOnelineCard(string $input): ?array
     {
         $normalized = preg_replace('/\s+/', ' ', trim($input));
-        if (!preg_match('/^(?<num>[0-9\s]{12,23})\s+(?<mm>\d{2})\/(?<yy>\d{2,4})\s+(?<cvc>\d{3,4})$/', $normalized, $m)) {
+        if (! preg_match('/^(?<num>[0-9\s]{12,23})\s+(?<mm>\d{2})\/(?<yy>\d{2,4})\s+(?<cvc>\d{3,4})$/', $normalized, $m)) {
             return null;
         }
         $number = preg_replace('/\D/', '', $m['num']);
@@ -353,6 +513,7 @@ class DonateController extends Controller
         if (strlen($year) === 2) {
             $year = '20'.$year;
         }
+
         return [
             'number' => $number,
             'exp_month' => $month,
@@ -361,6 +522,3 @@ class DonateController extends Controller
         ];
     }
 }
-
-
-
