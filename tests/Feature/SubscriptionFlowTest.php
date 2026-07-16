@@ -79,6 +79,7 @@ class SubscriptionFlowTest extends TestCase
             'full_name' => 'Test Kullanıcı',
             'email' => 'test@example.com',
             'donation_type' => 'monthly',
+            'phone' => '0532 123 45 67',
         ]);
 
         $resp->assertStatus(200);
@@ -90,6 +91,26 @@ class SubscriptionFlowTest extends TestCase
         $this->assertEquals('sub_tok_123', $subscription->checkout_token);
         $this->assertEquals(10000, $subscription->amount_minor);
         $this->assertNotNull($subscription->conversation_id);
+        // Phone is normalized to E.164 and stored on the donor
+        $this->assertEquals('+905321234567', Donor::first()->phone);
+    }
+
+    public function test_monthly_donation_requires_valid_phone(): void
+    {
+        foreach ([null, 'abc', '0212 123 45 67', '123'] as $phone) {
+            $resp = $this->from('/')->post('/donate/start', [
+                'amount' => '100',
+                'full_name' => 'Test Kullanıcı',
+                'email' => 'test@example.com',
+                'donation_type' => 'monthly',
+                'phone' => $phone,
+            ]);
+
+            $resp->assertRedirect('/');
+            $resp->assertSessionHasErrors('phone');
+        }
+
+        $this->assertDatabaseCount('subscriptions', 0);
     }
 
     public function test_monthly_donation_rejected_when_active_subscription_with_same_amount_exists(): void
@@ -102,6 +123,7 @@ class SubscriptionFlowTest extends TestCase
             'full_name' => 'Test Kullanıcı',
             'email' => 'test@example.com',
             'donation_type' => 'monthly',
+            'phone' => '05321234567',
         ]);
 
         $resp->assertRedirect('/');

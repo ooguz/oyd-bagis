@@ -183,9 +183,10 @@ class IyzicoSubscriptionService
         $customer->setName($firstName);
         $customer->setSurname($lastName);
         $customer->setEmail($donor->email);
-        // iyzico requires GSM/identity/address for subscriptions; we only collect
-        // name+email for donations, so use the same placeholders as the one-time flow.
-        $customer->setGsmNumber('+905350000000');
+        // iyzico keys the card-storage consumer account on the GSM number, so
+        // the donor's real number is used; identity/address stay placeholders
+        // as in the one-time flow.
+        $customer->setGsmNumber($donor->phone ?: '+905350000000');
         $customer->setIdentityNumber('11111111111');
         $customer->setBillingContactName($donor->full_name);
         $customer->setBillingCity('Istanbul');

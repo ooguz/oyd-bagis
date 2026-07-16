@@ -10,6 +10,7 @@ class Donor extends Model
     protected $fillable = [
         'email',
         'full_name',
+        'phone',
         'last_donated_at',
         'iyzico_customer_ref',
     ];
