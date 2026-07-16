@@ -39,6 +39,8 @@ return [
         'api_key' => env('IYZI_API_KEY', ''),
         'secret_key' => env('IYZI_SECRET_KEY', ''),
         'base_url' => env('IYZI_BASE_URL', 'https://sandbox-api.iyzipay.com'),
+        // Optional: reuse an existing iyzico subscription product instead of auto-creating one
+        'subscription_product_ref' => env('IYZI_SUBSCRIPTION_PRODUCT_REF'),
     ],
 
 ];
