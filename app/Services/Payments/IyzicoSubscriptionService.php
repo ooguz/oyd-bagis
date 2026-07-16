@@ -191,6 +191,14 @@ class IyzicoSubscriptionService
         $customer->setBillingCity('Istanbul');
         $customer->setBillingCountry('Turkey');
         $customer->setBillingAddress('NA');
+        $customer->setBillingZipCode('34000');
+        // The SDK always serializes shippingAddress; left unset it goes out as
+        // an empty array and iyzico answers with a generic "Sistem hatası".
+        $customer->setShippingContactName($donor->full_name);
+        $customer->setShippingCity('Istanbul');
+        $customer->setShippingCountry('Turkey');
+        $customer->setShippingAddress('NA');
+        $customer->setShippingZipCode('34000');
 
         $request = new SubscriptionCreateCheckoutFormRequest;
         $request->setLocale(Locale::TR);
