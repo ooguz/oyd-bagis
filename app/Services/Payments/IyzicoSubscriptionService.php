@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Iyzipay\Model\Customer;
 use Iyzipay\Model\Locale;
+use Iyzipay\Model\Subscription\RetrieveList;
 use Iyzipay\Model\Subscription\RetrieveSubscriptionCheckoutForm;
 use Iyzipay\Model\Subscription\SubscriptionCancel;
 use Iyzipay\Model\Subscription\SubscriptionCardUpdate;
@@ -21,6 +22,7 @@ use Iyzipay\Request\Subscription\SubscriptionCardUpdateWithSubscriptionReference
 use Iyzipay\Request\Subscription\SubscriptionCreateCheckoutFormRequest;
 use Iyzipay\Request\Subscription\SubscriptionCreatePricingPlanRequest;
 use Iyzipay\Request\Subscription\SubscriptionCreateProductRequest;
+use Iyzipay\Request\Subscription\SubscriptionListProductsRequest;
 
 class IyzicoSubscriptionService
 {
@@ -29,7 +31,7 @@ class IyzicoSubscriptionService
     /**
      * Returns the iyzico product reference code that all donation plans belong to.
      * Resolution order: IYZI_SUBSCRIPTION_PRODUCT_REF env, an already-synced plan,
-     * then creating the product on iyzico.
+     * a same-named product already on the iyzico account, then creating one.
      */
     public function ensureProduct(): string
     {
@@ -43,10 +45,20 @@ class IyzicoSubscriptionService
             return $existing;
         }
 
+        $name = config('app.name', 'OYD').' Aylık Bağış';
+
+        // iyzico rejects duplicate product names (201001), so reuse one if present
+        $found = $this->findProductByName($name);
+        if ($found) {
+            Log::info('iyzico.subscription.product_reused', ['ref' => $found]);
+
+            return $found;
+        }
+
         $request = new SubscriptionCreateProductRequest;
         $request->setLocale(Locale::TR);
         $request->setConversationId((string) Str::uuid());
-        $request->setName(config('app.name', 'OYD').' Aylık Bağış');
+        $request->setName($name);
         $request->setDescription('Aylık düzenli bağış aboneliği');
 
         $result = SubscriptionProduct::create($request, $this->client->getOptions());
@@ -62,6 +74,40 @@ class IyzicoSubscriptionService
         Log::info('iyzico.subscription.product_created', ['ref' => $result->getReferenceCode()]);
 
         return $result->getReferenceCode();
+    }
+
+    private function findProductByName(string $name): ?string
+    {
+        $page = 1;
+
+        do {
+            $request = new SubscriptionListProductsRequest;
+            $request->setLocale(Locale::TR);
+            $request->setConversationId((string) Str::uuid());
+            $request->setPage($page);
+            $request->setCount(100);
+
+            $result = RetrieveList::products($request, $this->client->getOptions());
+
+            if ($result->getStatus() !== 'success') {
+                Log::warning('iyzico.subscription.product_list_failed', [
+                    'error_code' => $result->getErrorCode(),
+                    'error_message' => $result->getErrorMessage(),
+                ]);
+
+                return null;
+            }
+
+            foreach ($result->getItems() ?? [] as $item) {
+                if (($item->name ?? null) === $name) {
+                    return $item->referenceCode ?? null;
+                }
+            }
+
+            $page++;
+        } while ($page <= (int) $result->getPageCount());
+
+        return null;
     }
 
     /**
