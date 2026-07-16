@@ -39,7 +39,13 @@ IYZI_BASE_URL=https://sandbox-api.iyzipay.com
 IYZI_THREE_D_THRESHOLD=500.00
 
 PAYMENTS_DRIVER=iyzico
+
+# Aylık düzenli bağış (iyzico Subscription API; iyzico panelinden
+# Subscription ürününün aktif olması gerekir)
 FEATURE_SUBSCRIPTIONS=false
+# Opsiyonel: mevcut bir iyzico abonelik ürününü kullanmak için referans kodu.
+# Boş bırakılırsa ürün ilk aylık bağışta otomatik oluşturulur.
+IYZI_SUBSCRIPTION_PRODUCT_REF=
 
 HMAC_WEBHOOK_SECRET=change_me
 RATE_LIMIT_DONATE=10
