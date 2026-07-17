@@ -22,6 +22,7 @@ use Iyzipay\Request\Subscription\SubscriptionCardUpdateWithSubscriptionReference
 use Iyzipay\Request\Subscription\SubscriptionCreateCheckoutFormRequest;
 use Iyzipay\Request\Subscription\SubscriptionCreatePricingPlanRequest;
 use Iyzipay\Request\Subscription\SubscriptionCreateProductRequest;
+use Iyzipay\Request\Subscription\SubscriptionListPricingPlanRequest;
 use Iyzipay\Request\Subscription\SubscriptionListProductsRequest;
 
 class IyzicoSubscriptionService
@@ -126,36 +127,49 @@ class IyzicoSubscriptionService
         $productRef = $this->ensureProduct();
         $name = 'Aylık ₺'.number_format($amountMinor / 100, 2, ',', '.').' Bağış';
 
-        $request = new SubscriptionCreatePricingPlanRequest;
-        $request->setLocale(Locale::TR);
-        $request->setConversationId((string) Str::uuid());
-        $request->setProductReferenceCode($productRef);
-        $request->setName($name);
-        $request->SetPrice(number_format($amountMinor / 100, 2, '.', ''));
-        $request->setCurrencyCode('TRY');
-        $request->setPaymentInterval('MONTHLY');
-        $request->setPaymentIntervalCount(1);
-        $request->setPlanPaymentType('RECURRING');
+        // iyzico rejects duplicate plan names (201051), so adopt a matching
+        // plan already on the account before creating one
+        $planRef = $this->findPlanOnIyzico($productRef, $name, $amountMinor);
 
-        $result = SubscriptionPricingPlan::create($request, $this->client->getOptions());
-
-        if ($result->getStatus() !== 'success' || ! $result->getReferenceCode()) {
-            Log::error('iyzico.subscription.plan_create_failed', [
+        if ($planRef) {
+            Log::info('iyzico.subscription.plan_reused', [
+                'plan_ref' => $planRef,
                 'amount_minor' => $amountMinor,
-                'error_code' => $result->getErrorCode(),
-                'error_message' => $result->getErrorMessage(),
             ]);
-            throw new \RuntimeException('Abonelik planı oluşturulamadı: '.($result->getErrorMessage() ?: 'Bilinmeyen hata'));
-        }
+        } else {
+            $request = new SubscriptionCreatePricingPlanRequest;
+            $request->setLocale(Locale::TR);
+            $request->setConversationId((string) Str::uuid());
+            $request->setProductReferenceCode($productRef);
+            $request->setName($name);
+            $request->SetPrice(number_format($amountMinor / 100, 2, '.', ''));
+            $request->setCurrencyCode('TRY');
+            $request->setPaymentInterval('MONTHLY');
+            $request->setPaymentIntervalCount(1);
+            $request->setPlanPaymentType('RECURRING');
 
-        Log::info('iyzico.subscription.plan_created', [
-            'plan_ref' => $result->getReferenceCode(),
-            'amount_minor' => $amountMinor,
-        ]);
+            $result = SubscriptionPricingPlan::create($request, $this->client->getOptions());
+
+            if ($result->getStatus() !== 'success' || ! $result->getReferenceCode()) {
+                Log::error('iyzico.subscription.plan_create_failed', [
+                    'amount_minor' => $amountMinor,
+                    'error_code' => $result->getErrorCode(),
+                    'error_message' => $result->getErrorMessage(),
+                ]);
+                throw new \RuntimeException('Abonelik planı oluşturulamadı: '.($result->getErrorMessage() ?: 'Bilinmeyen hata'));
+            }
+
+            $planRef = $result->getReferenceCode();
+
+            Log::info('iyzico.subscription.plan_created', [
+                'plan_ref' => $planRef,
+                'amount_minor' => $amountMinor,
+            ]);
+        }
 
         $attributes = [
             'name' => $name,
-            'iyzico_plan_ref' => $result->getReferenceCode(),
+            'iyzico_plan_ref' => $planRef,
             'iyzico_product_ref' => $productRef,
         ];
 
@@ -169,6 +183,58 @@ class IyzicoSubscriptionService
         }
 
         return $plan;
+    }
+
+    /**
+     * Looks for a plan under the product that this amount can reuse: same name,
+     * or — for plans created under an older naming scheme — a plain monthly
+     * RECURRING plan (no trial, no recurrence limit) with the same price.
+     */
+    private function findPlanOnIyzico(string $productRef, string $name, int $amountMinor): ?string
+    {
+        $page = 1;
+        $priceMatch = null;
+
+        do {
+            $request = new SubscriptionListPricingPlanRequest;
+            $request->setLocale(Locale::TR);
+            $request->setConversationId((string) Str::uuid());
+            $request->setProductReferenceCode($productRef);
+            $request->setPage($page);
+            $request->setCount(100);
+
+            $result = RetrieveList::pricingPlan($request, $this->client->getOptions());
+
+            if ($result->getStatus() !== 'success') {
+                Log::warning('iyzico.subscription.plan_list_failed', [
+                    'error_code' => $result->getErrorCode(),
+                    'error_message' => $result->getErrorMessage(),
+                ]);
+
+                return null;
+            }
+
+            foreach ($result->getItems() ?? [] as $item) {
+                if (($item->name ?? null) === $name) {
+                    return $item->referenceCode ?? null;
+                }
+
+                $isPlainMonthly = ($item->paymentInterval ?? null) === 'MONTHLY'
+                    && (int) ($item->paymentIntervalCount ?? 1) === 1
+                    && ($item->planPaymentType ?? 'RECURRING') === 'RECURRING'
+                    && empty($item->trialPeriodDays)
+                    && empty($item->recurrenceCount);
+
+                if ($priceMatch === null && $isPlainMonthly
+                    && abs((float) ($item->price ?? 0) - $amountMinor / 100) < 0.005) {
+                    $priceMatch = $item->referenceCode ?? null;
+                }
+            }
+
+            $page++;
+        } while ($page <= (int) $result->getPageCount());
+
+        return $priceMatch;
     }
 
     /**
