@@ -19,7 +19,7 @@ class IyzicoWebhookTest extends TestCase
         $payload = ['conversationId' => 'conv1', 'paymentStatus' => 'SUCCESS'];
         $secret = 'secret123';
         config(['app.key' => 'base64:'.base64_encode(random_bytes(32))]);
-        putenv('HMAC_WEBHOOK_SECRET='.$secret);
+        config(['services.iyzico.webhook_secret' => $secret]);
         $body = json_encode($payload);
         $sig = base64_encode(hash_hmac('sha256', $body, $secret, true));
 
@@ -30,6 +30,3 @@ class IyzicoWebhookTest extends TestCase
         $this->assertEquals('success', $donation->fresh()->status);
     }
 }
-
-
-

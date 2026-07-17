@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Mail\DonationReceiptMail;
 use App\Models\Donation;
 use App\Models\Subscription;
+use App\Services\Payments\IyzicoSubscriptionService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
@@ -12,22 +13,26 @@ use Illuminate\Support\Str;
 
 class IyzicoWebhookController extends Controller
 {
+    private const SUBSCRIPTION_EVENTS = ['subscription.order.success', 'subscription.order.failure'];
+
+    public function __construct(private readonly IyzicoSubscriptionService $subscriptions) {}
+
     public function handle(Request $request)
     {
-        $signature = $request->header('X-Signature');
-        $secret = env('HMAC_WEBHOOK_SECRET');
-        $computed = base64_encode(hash_hmac('sha256', $request->getContent(), $secret, true));
+        $payload = $request->all();
+        $eventType = $payload['iyziEventType'] ?? null;
 
-        if (! $signature || ! hash_equals($signature, $computed)) {
-            Log::warning('webhook.invalid_signature');
+        if (! $this->verifySignature($request, $payload, $eventType)) {
+            Log::warning('webhook.invalid_signature', [
+                'event_type' => $eventType,
+                'has_v3_header' => $request->hasHeader('X-IYZ-SIGNATURE-V3'),
+                'has_legacy_header' => $request->hasHeader('X-Signature'),
+            ]);
 
             return response()->json(['message' => 'unauthorized'], 401);
         }
 
-        $payload = $request->all();
-
         // Recurring subscription charge notifications (Merchant Subscription Notifications)
-        $eventType = $payload['iyziEventType'] ?? null;
         if ($eventType === 'subscription.order.success') {
             return $this->handleSubscriptionOrderSuccess($payload);
         }
@@ -63,6 +68,84 @@ class IyzicoWebhookController extends Controller
         }
 
         return response()->json(['ok' => true]);
+    }
+
+    /**
+     * iyzico signs webhooks with X-IYZ-SIGNATURE-V3 (hex HMAC-SHA256, keyed by
+     * the API secret, over an event-type-specific concatenation) — but only
+     * once the "webhook signature" feature is enabled on the merchant account.
+     * Subscription charge events arriving without a verifiable signature are
+     * therefore confirmed against the iyzico API instead of being trusted.
+     * X-Signature is our own scheme, kept for manual/internal calls.
+     */
+    private function verifySignature(Request $request, array $payload, ?string $eventType): bool
+    {
+        $legacy = $request->header('X-Signature');
+        $legacySecret = config('services.iyzico.webhook_secret');
+        if ($legacy && $legacySecret) {
+            return hash_equals(base64_encode(hash_hmac('sha256', $request->getContent(), $legacySecret, true)), $legacy);
+        }
+
+        $v3 = $request->header('X-IYZ-SIGNATURE-V3');
+        $expected = $v3 ? $this->computeV3Signature($payload, $eventType) : null;
+        if ($v3 && $expected) {
+            return hash_equals($expected, strtolower($v3));
+        }
+
+        if (in_array($eventType, self::SUBSCRIPTION_EVENTS, true)) {
+            return $this->confirmSubscriptionOrder($payload, $eventType);
+        }
+
+        return false;
+    }
+
+    private function computeV3Signature(array $payload, ?string $eventType): ?string
+    {
+        $secretKey = config('services.iyzico.secret_key');
+        if (! $secretKey) {
+            return null;
+        }
+
+        if (in_array($eventType, self::SUBSCRIPTION_EVENTS, true)) {
+            $merchantId = config('services.iyzico.merchant_id');
+            if (! $merchantId) {
+                return null;
+            }
+            $message = $merchantId.$secretKey.$eventType
+                .($payload['subscriptionReferenceCode'] ?? '')
+                .($payload['orderReferenceCode'] ?? '')
+                .($payload['customerReferenceCode'] ?? '');
+        } elseif (isset($payload['token'])) {
+            // HPP format: hosted pages (checkout form, pay-with-iyzico)
+            $message = $secretKey.$eventType
+                .($payload['iyziPaymentId'] ?? '')
+                .$payload['token']
+                .($payload['paymentConversationId'] ?? '')
+                .($payload['status'] ?? '');
+        } else {
+            // Direct format: NON-3DS / 3DS API payments
+            $message = $secretKey.$eventType
+                .($payload['paymentId'] ?? '')
+                .($payload['paymentConversationId'] ?? '')
+                .($payload['status'] ?? '');
+        }
+
+        return hash_hmac('sha256', $message, $secretKey);
+    }
+
+    private function confirmSubscriptionOrder(array $payload, string $eventType): bool
+    {
+        $subRef = $payload['subscriptionReferenceCode'] ?? null;
+        $orderRef = $payload['orderReferenceCode'] ?? null;
+        if (! $subRef || ! $orderRef) {
+            return false;
+        }
+
+        $orderStatus = $this->subscriptions->retrieveOrderStatus($subRef, $orderRef);
+
+        return $eventType === 'subscription.order.success'
+            ? $orderStatus === 'SUCCESS'
+            : in_array($orderStatus, ['FAILED', 'WAITING'], true);
     }
 
     /**

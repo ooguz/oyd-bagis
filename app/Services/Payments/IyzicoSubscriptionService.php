@@ -14,6 +14,7 @@ use Iyzipay\Model\Subscription\RetrieveSubscriptionCheckoutForm;
 use Iyzipay\Model\Subscription\SubscriptionCancel;
 use Iyzipay\Model\Subscription\SubscriptionCardUpdate;
 use Iyzipay\Model\Subscription\SubscriptionCreateCheckoutForm;
+use Iyzipay\Model\Subscription\SubscriptionDetails;
 use Iyzipay\Model\Subscription\SubscriptionPricingPlan;
 use Iyzipay\Model\Subscription\SubscriptionProduct;
 use Iyzipay\Request\Subscription\RetrieveSubscriptionCreateCheckoutFormRequest;
@@ -22,6 +23,7 @@ use Iyzipay\Request\Subscription\SubscriptionCardUpdateWithSubscriptionReference
 use Iyzipay\Request\Subscription\SubscriptionCreateCheckoutFormRequest;
 use Iyzipay\Request\Subscription\SubscriptionCreatePricingPlanRequest;
 use Iyzipay\Request\Subscription\SubscriptionCreateProductRequest;
+use Iyzipay\Request\Subscription\SubscriptionDetailsRequest;
 use Iyzipay\Request\Subscription\SubscriptionListPricingPlanRequest;
 use Iyzipay\Request\Subscription\SubscriptionListProductsRequest;
 
@@ -312,8 +314,11 @@ class IyzicoSubscriptionService
      */
     public function retrieveCheckoutFormResult(string $token): array
     {
+        // Nothing besides the token may be set on this request: the SDK signs
+        // the GET over path + JSON body but sends no body, so any extra field
+        // (even locale) breaks the IYZWSv2 signature and iyzico answers 401
+        // "Authentication token is not verified".
         $request = new RetrieveSubscriptionCreateCheckoutFormRequest;
-        $request->setLocale(Locale::TR);
         $request->setCheckoutFormToken($token);
 
         try {
@@ -348,6 +353,47 @@ class IyzicoSubscriptionService
                 'status' => 'failure',
                 'errorMessage' => $e->getMessage(),
             ];
+        }
+    }
+
+    /**
+     * Confirms a recurring charge against the iyzico API: returns the status
+     * of the order ('SUCCESS'|'FAILED'|'WAITING') within the subscription, or
+     * null when the subscription or order is unknown.
+     */
+    public function retrieveOrderStatus(string $subscriptionRef, string $orderRef): ?string
+    {
+        $request = new SubscriptionDetailsRequest;
+        $request->setSubscriptionReferenceCode($subscriptionRef);
+
+        try {
+            $result = SubscriptionDetails::retrieve($request, $this->client->getOptions());
+
+            if ($result->getStatus() !== 'success') {
+                Log::warning('iyzico.subscription.details_failed', [
+                    'sub_ref' => $subscriptionRef,
+                    'error_code' => $result->getErrorCode(),
+                    'error_message' => $result->getErrorMessage(),
+                ]);
+
+                return null;
+            }
+
+            foreach ($result->getOrders() ?? [] as $order) {
+                $order = (object) $order;
+                if (($order->referenceCode ?? null) === $orderRef) {
+                    return $order->orderStatus ?? null;
+                }
+            }
+
+            return null;
+        } catch (\Throwable $e) {
+            Log::error('iyzico.subscription.details_error', [
+                'sub_ref' => $subscriptionRef,
+                'message' => $e->getMessage(),
+            ]);
+
+            return null;
         }
     }
 

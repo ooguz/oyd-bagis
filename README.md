@@ -46,7 +46,12 @@ FEATURE_SUBSCRIPTIONS=false
 # Opsiyonel: mevcut bir iyzico abonelik ürününü kullanmak için referans kodu.
 # Boş bırakılırsa ürün ilk aylık bağışta otomatik oluşturulur.
 IYZI_SUBSCRIPTION_PRODUCT_REF=
+# iyzico üye işyeri numarası (MID). Webhook'lardaki X-IYZ-SIGNATURE-V3
+# imzasının doğrulanması için gerekir (imza özelliği iyzico tarafından
+# hesapta aktifleştirilmişse).
+IYZI_MERCHANT_ID=
 
+# Elle/iç webhook çağrıları için kendi imza anahtarımız (X-Signature başlığı)
 HMAC_WEBHOOK_SECRET=change_me
 RATE_LIMIT_DONATE=10
 ```

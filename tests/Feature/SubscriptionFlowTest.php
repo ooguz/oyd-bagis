@@ -196,7 +196,7 @@ class SubscriptionFlowTest extends TestCase
     private function postSignedWebhook(array $payload)
     {
         $secret = 'secret123';
-        putenv('HMAC_WEBHOOK_SECRET='.$secret);
+        config(['services.iyzico.webhook_secret' => $secret]);
         $sig = base64_encode(hash_hmac('sha256', json_encode($payload), $secret, true));
 
         return $this->withHeader('X-Signature', $sig)->postJson('/webhooks/iyzico', $payload);
@@ -228,6 +228,76 @@ class SubscriptionFlowTest extends TestCase
 
         // Webhook retries must not duplicate the donation
         $this->postSignedWebhook($payload)->assertOk();
+        $this->assertEquals(1, Donation::count());
+    }
+
+    public function test_webhook_with_iyzico_v3_signature_creates_donation(): void
+    {
+        Mail::fake();
+        config(['services.iyzico.secret_key' => 'iyzi-secret', 'services.iyzico.merchant_id' => 'mid-1']);
+
+        $donor = Donor::create(['email' => 'test@example.com', 'full_name' => 'Test Kullanıcı']);
+        $this->makeActiveSubscription($donor);
+
+        $payload = [
+            'iyziEventType' => 'subscription.order.success',
+            'subscriptionReferenceCode' => 'sub_ref_1',
+            'orderReferenceCode' => 'order_ref_v3',
+            'customerReferenceCode' => 'cust_ref_1',
+        ];
+
+        // merchantId + secretKey + eventType + subRef + orderRef + customerRef, hex HMAC-SHA256
+        $sig = hash_hmac('sha256', 'mid-1'.'iyzi-secret'.'subscription.order.success'.'sub_ref_1'.'order_ref_v3'.'cust_ref_1', 'iyzi-secret');
+
+        $this->withHeader('X-IYZ-SIGNATURE-V3', $sig)->postJson('/webhooks/iyzico', $payload)->assertOk();
+        $this->assertEquals(1, Donation::count());
+    }
+
+    public function test_webhook_with_wrong_v3_signature_is_rejected(): void
+    {
+        config(['services.iyzico.secret_key' => 'iyzi-secret', 'services.iyzico.merchant_id' => 'mid-1']);
+
+        $donor = Donor::create(['email' => 'test@example.com', 'full_name' => 'Test Kullanıcı']);
+        $this->makeActiveSubscription($donor);
+
+        $this->withHeader('X-IYZ-SIGNATURE-V3', 'bogus')->postJson('/webhooks/iyzico', [
+            'iyziEventType' => 'subscription.order.success',
+            'subscriptionReferenceCode' => 'sub_ref_1',
+            'orderReferenceCode' => 'order_ref_bad',
+            'customerReferenceCode' => 'cust_ref_1',
+        ])->assertUnauthorized();
+
+        $this->assertEquals(0, Donation::count());
+    }
+
+    public function test_unsigned_subscription_webhook_is_confirmed_against_iyzico_api(): void
+    {
+        Mail::fake();
+
+        $donor = Donor::create(['email' => 'test@example.com', 'full_name' => 'Test Kullanıcı']);
+        $this->makeActiveSubscription($donor);
+
+        $this->mock(IyzicoSubscriptionService::class, function ($mock) {
+            $mock->shouldReceive('retrieveOrderStatus')->with('sub_ref_1', 'order_ref_api')->andReturn('SUCCESS');
+            $mock->shouldReceive('retrieveOrderStatus')->with('sub_ref_1', 'order_ref_unknown')->andReturn(null);
+        });
+
+        // Order confirmed on iyzico → processed
+        $this->postJson('/webhooks/iyzico', [
+            'iyziEventType' => 'subscription.order.success',
+            'subscriptionReferenceCode' => 'sub_ref_1',
+            'orderReferenceCode' => 'order_ref_api',
+            'customerReferenceCode' => 'cust_ref_1',
+        ])->assertOk();
+        $this->assertEquals(1, Donation::count());
+
+        // Order iyzico doesn't know about → rejected
+        $this->postJson('/webhooks/iyzico', [
+            'iyziEventType' => 'subscription.order.success',
+            'subscriptionReferenceCode' => 'sub_ref_1',
+            'orderReferenceCode' => 'order_ref_unknown',
+            'customerReferenceCode' => 'cust_ref_1',
+        ])->assertUnauthorized();
         $this->assertEquals(1, Donation::count());
     }
 
